@@ -1,6 +1,6 @@
 # OpenRouter Skills
 
-A collection of [Agent Skills](https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills) for building with [OpenRouter](https://openrouter.ai) — a unified API for [600+ AI models](https://openrouter.ai/models).
+A collection of [Agent Skills](https://agentskills.io/home) for building with [OpenRouter](https://openrouter.ai) — a unified API for [600+ AI models](https://openrouter.ai/models).
 
 ## Installing
 
