@@ -1,6 +1,6 @@
 ---
 name: openrouter-oauth
-description: Implement "Sign In with OpenRouter" using OAuth PKCE — framework-agnostic, no SDK or client registration required. Use when the user wants to add login, authentication, sign-in buttons, OAuth, API keys for browser apps, PKCE, or needs to connect to AI models from the browser. Trigger even if "OpenRouter" isn't mentioned — if they need browser-based auth for AI model access, this is the skill.
+description: Implement "Sign In with OpenRouter" using OAuth PKCE — framework-agnostic, no SDK or client registration required. Use when the user wants to add OpenRouter login, authentication, sign-in buttons, OAuth, or AI model inference API keys for browser-based apps. No client registration, no backend, no secrets required.
 version: 2.0.0
 compatibility: browser (requires Web Crypto API, localStorage, sessionStorage)
 ---
