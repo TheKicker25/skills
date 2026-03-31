@@ -1,18 +1,26 @@
 ---
 name: openrouter-typescript-sdk
-description: Complete reference for integrating with 300+ AI models through the OpenRouter TypeScript SDK using the callModel pattern
-version: 1.0.0
+description: Complete reference for integrating with 300+ AI models through the OpenRouter TypeScript SDK and Agent packages using the callModel pattern
+version: 2.0.0
 ---
 
 # OpenRouter TypeScript SDK
 
 A comprehensive TypeScript SDK for interacting with OpenRouter's unified API, providing access to 300+ AI models through a single, type-safe interface. This skill enables AI agents to leverage the `callModel` pattern for text generation, tool usage, streaming, and multi-turn conversations.
 
+The SDK is split into two packages:
+- **`@openrouter/agent`** — Agent features: `callModel`, `tool()`, stop conditions, streaming, format converters
+- **`@openrouter/sdk`** — Platform features: model listing, chat completions, credits, OAuth, API key management
+
 ---
 
 ## Installation
 
 ```bash
+# For agent features (callModel, tools, stop conditions)
+npm install @openrouter/agent
+
+# For platform features (models, credits, OAuth, API keys)
 npm install @openrouter/sdk
 ```
 
@@ -21,7 +29,7 @@ npm install @openrouter/sdk
 Get your API key from [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys), then initialize:
 
 ```typescript
-import OpenRouter from '@openrouter/sdk';
+import { OpenRouter } from '@openrouter/agent';
 
 const client = new OpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY
@@ -53,7 +61,7 @@ export OPENROUTER_API_KEY=sk-or-v1-your-key-here
 #### Client Initialization
 
 ```typescript
-import OpenRouter from '@openrouter/sdk';
+import { OpenRouter } from '@openrouter/agent';
 
 const client = new OpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY
@@ -72,10 +80,13 @@ const result = client.callModel({
 
 #### Get Current Key Metadata
 
-Retrieve information about the currently configured API key:
+Retrieve information about the currently configured API key (requires `@openrouter/sdk`):
 
 ```typescript
-const keyInfo = await client.apiKeys.getCurrentKeyMetadata();
+import OpenRouter from '@openrouter/sdk';
+const sdkClient = new OpenRouter({ apiKey: process.env.OPENROUTER_API_KEY });
+
+const keyInfo = await sdkClient.apiKeys.getCurrentKeyMetadata();
 console.log('Key name:', keyInfo.name);
 console.log('Created:', keyInfo.createdAt);
 ```
@@ -180,11 +191,13 @@ await saveUserApiKey(userId, userApiKey);
 
 ```typescript
 import OpenRouter from '@openrouter/sdk';
+import { OpenRouter as Agent } from '@openrouter/agent';
 import express from 'express';
 
 const app = express();
+// SDK client for OAuth and API key management
 const client = new OpenRouter({
-  apiKey: process.env.OPENROUTER_API_KEY  // Your app's key for OAuth operations
+  apiKey: process.env.OPENROUTER_API_KEY
 });
 
 // Step 1: Initiate OAuth flow
@@ -227,12 +240,12 @@ app.get('/auth/callback', async (req, res) => {
 app.post('/api/chat', async (req, res) => {
   const userApiKey = await getUserApiKey(req.session.userId);
 
-  // Create a client with the user's key
-  const userClient = new OpenRouter({
+  // Create an agent client with the user's key
+  const userAgent = new Agent({
     apiKey: userApiKey
   });
 
-  const result = userClient.callModel({
+  const result = userAgent.callModel({
     model: 'openai/gpt-5-nano',
     input: req.body.message
   });
@@ -395,7 +408,7 @@ Create strongly-typed tools using Zod schemas for automatic validation and type 
 ### Defining Tools
 
 ```typescript
-import { tool } from '@openrouter/sdk';
+import { tool } from '@openrouter/agent/tool';
 import { z } from 'zod';
 
 const weatherTool = tool({
@@ -492,7 +505,7 @@ const manualTool = tool({
 Control automatic tool execution with stop conditions:
 
 ```typescript
-import { stepCountIs, maxCost, hasToolCall } from '@openrouter/sdk';
+import { stepCountIs, maxCost, hasToolCall } from '@openrouter/agent/stop-conditions';
 
 const result = client.callModel({
   model: 'openai/gpt-5.2',
@@ -655,7 +668,7 @@ Convert between ecosystem formats for interoperability:
 ### OpenAI Format
 
 ```typescript
-import { fromChatMessages, toChatMessage } from '@openrouter/sdk';
+import { fromChatMessages, toChatMessage } from '@openrouter/agent';
 
 // OpenAI messages → OpenRouter format
 const result = client.callModel({
@@ -671,7 +684,7 @@ const chatMsg = toChatMessage(response);
 ### Claude Format
 
 ```typescript
-import { fromClaudeMessages, toClaudeMessage } from '@openrouter/sdk';
+import { fromClaudeMessages, toClaudeMessage } from '@openrouter/agent';
 
 // Claude messages → OpenRouter format
 const result = client.callModel({
@@ -1040,36 +1053,38 @@ for await (const message of result.getNewMessagesStream()) {
 
 ### Client Methods
 
-Beyond `callModel`, the client provides access to other API endpoints:
+Beyond `callModel`, the SDK client (`@openrouter/sdk`) provides access to platform API endpoints:
 
 ```typescript
-const client = new OpenRouter({
+import OpenRouter from '@openrouter/sdk';
+
+const sdkClient = new OpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY
 });
 
 // List available models
-const models = await client.models.list();
+const models = await sdkClient.models.list();
 
 // Chat completions (alternative to callModel)
-const completion = await client.chat.send({
+const completion = await sdkClient.chat.send({
   model: 'openai/gpt-5-nano',
   messages: [{ role: 'user', content: 'Hello!' }]
 });
 
 // Legacy completions format
-const legacyCompletion = await client.completions.generate({
+const legacyCompletion = await sdkClient.completions.generate({
   model: 'openai/gpt-5-nano',
   prompt: 'Once upon a time'
 });
 
 // Usage analytics
-const activity = await client.analytics.getUserActivity();
+const activity = await sdkClient.analytics.getUserActivity();
 
 // Credit balance
-const credits = await client.credits.getCredits();
+const credits = await sdkClient.credits.getCredits();
 
 // API key management
-const keys = await client.apiKeys.list();
+const keys = await sdkClient.apiKeys.list();
 ```
 
 ---
@@ -1116,7 +1131,9 @@ try {
 ## Complete Example: Agent with Tools
 
 ```typescript
-import OpenRouter, { tool, stepCountIs } from '@openrouter/sdk';
+import { OpenRouter } from '@openrouter/agent';
+import { tool } from '@openrouter/agent/tool';
+import { stepCountIs, hasToolCall } from '@openrouter/agent/stop-conditions';
 import { z } from 'zod';
 
 const client = new OpenRouter({
@@ -1242,7 +1259,8 @@ for await (const delta of result.getTextStream()) {
 
 - **API Keys**: [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys)
 - **Model List**: [openrouter.ai/models](https://openrouter.ai/models)
-- **GitHub Issues**: [github.com/OpenRouterTeam/typescript-sdk/issues](https://github.com/OpenRouterTeam/typescript-sdk/issues)
+- **Agent SDK**: [github.com/OpenRouterTeam/typescript-agent](https://github.com/OpenRouterTeam/typescript-agent)
+- **SDK Issues**: [github.com/OpenRouterTeam/typescript-sdk/issues](https://github.com/OpenRouterTeam/typescript-sdk/issues)
 
 ---
 
