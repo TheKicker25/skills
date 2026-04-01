@@ -70,16 +70,17 @@ Custom items participate in the same item state machine as core items (`in_progr
 
 **Example — Internally-hosted tool item:**
 
-A provider offering a built-in web search tool produces custom item types that can be sent back in `input` on a follow-up request for lossless context reconstruction:
+A provider offering a built-in code interpreter produces custom item types that can be sent back in `input` on a follow-up request for lossless context reconstruction:
 
 ```json
 {
   "id": "item_030",
-  "type": "acme:web_search_call",
+  "type": "acme:code_interpreter_call",
   "status": "completed",
-  "query": "current weather Paris",
-  "results": [
-    {"title": "Paris Weather", "url": "https://example.com/weather", "snippet": "18°C, partly cloudy"}
+  "code": "import math\nprint(math.sqrt(144))",
+  "language": "python",
+  "output": [
+    {"type": "text", "text": "12.0"}
   ]
 }
 ```

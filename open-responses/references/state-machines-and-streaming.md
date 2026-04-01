@@ -10,7 +10,8 @@ Every item and every response follows a finite state machine. Understanding thes
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued : Request accepted
+    [*] --> created : response.created
+    created --> queued : response.queued
 
     queued --> in_progress : response.in_progress
 
@@ -52,9 +53,11 @@ stateDiagram-v2
     }
 
     ip --> completed : response.completed
+    ip --> incomplete : response.incomplete
     ip --> failed : response.failed
 
     completed --> [*]
+    incomplete --> [*]
     failed --> [*]
 ```
 
@@ -100,7 +103,8 @@ stateDiagram-v2
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued
+    [*] --> created : response.created
+    created --> queued : response.queued
     queued --> in_progress : response.in_progress
     in_progress --> completed : response.completed
     in_progress --> incomplete : response.incomplete\n(item hit token budget)
@@ -112,6 +116,7 @@ stateDiagram-v2
 
 | State | Description | Transitions To |
 |-------|-------------|---------------|
+| `created` | Response object first created | `queued` |
 | `queued` | Request accepted, waiting for model availability | `in_progress` |
 | `in_progress` | Model is actively generating output items | `completed`, `incomplete`, `failed` |
 | `completed` | All output items finalized successfully | *(terminal)* |
@@ -124,6 +129,8 @@ stateDiagram-v2
 
 | Transition | Event Emitted | When |
 |-----------|---------------|------|
+| *(initial)* -> `created` | `response.created` | Response object first created |
+| `created` -> `queued` | `response.queued` | Response enters model queue |
 | `queued` -> `in_progress` | `response.in_progress` | Model begins processing |
 | `in_progress` -> `completed` | `response.completed` | All items done, response finalized |
 | `in_progress` -> `incomplete` | `response.incomplete` | Item exhausted token budget |
@@ -139,7 +146,8 @@ All delta and item events carry these fields for stream reconstruction:
 
 | Response State | Item State | Valid Events |
 |---------------|-----------|--------------|
-| `queued` | *(no items yet)* | *(none)* |
+| `created` | *(no items yet)* | *(none — transient)* |
+| `queued` | *(no items yet)* | *(none — waiting for model)* |
 | `in_progress` | *(no item yet)* | `response.output_item.added` |
 | `in_progress` | `in_progress` (message) | `response.content_part.added`, `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `vendor:*` |
 | `in_progress` | `in_progress` (function_call) | `response.function_call_arguments.delta`, `response.function_call_arguments.done`, `vendor:*` |
@@ -151,25 +159,29 @@ All delta and item events carry these fields for stream reconstruction:
 
 ### State Machine Example: Simple Text Response
 
-The response starts `queued`, transitions to `in_progress` (emitting `response.in_progress`), creates a message item in `in_progress` state, streams text deltas, marks the item `completed`, then the response transitions to `completed`:
+The response is created, queued, then transitions to `in_progress` (emitting lifecycle events at each step), creates a message item in `in_progress` state, streams text deltas, marks the item `completed`, then the response transitions to `completed`:
 
 ```json
+// 0. Response created and queued
+{"type": "response.created", "sequence_number": 0, "response": {"id": "resp_001", "status": "queued"}}
+{"type": "response.queued", "sequence_number": 1, "response": {"id": "resp_001", "status": "queued"}}
+
 // 1. Response transitions queued -> in_progress
-{"type": "response.in_progress", "sequence_number": 0, "response": {"id": "resp_001", "status": "in_progress", "output": []}}
+{"type": "response.in_progress", "sequence_number": 2, "response": {"id": "resp_001", "status": "in_progress", "output": []}}
 
 // 2. New item created in in_progress state
-{"type": "response.output_item.added", "sequence_number": 1, "output_index": 0, "item": {"id": "item_001", "type": "message", "status": "in_progress", "content": []}}
+{"type": "response.output_item.added", "sequence_number": 3, "output_index": 0, "item": {"id": "item_001", "type": "message", "status": "in_progress", "content": []}}
 
 // 3. Text deltas emitted while item is in_progress
-{"type": "response.output_text.delta", "sequence_number": 2, "item_id": "item_001", "output_index": 0, "content_index": 0, "delta": "The capital"}
-{"type": "response.output_text.delta", "sequence_number": 3, "item_id": "item_001", "output_index": 0, "content_index": 0, "delta": " of France"}
-{"type": "response.output_text.delta", "sequence_number": 4, "item_id": "item_001", "output_index": 0, "content_index": 0, "delta": " is Paris."}
+{"type": "response.output_text.delta", "sequence_number": 4, "item_id": "item_001", "output_index": 0, "content_index": 0, "delta": "The capital"}
+{"type": "response.output_text.delta", "sequence_number": 5, "item_id": "item_001", "output_index": 0, "content_index": 0, "delta": " of France"}
+{"type": "response.output_text.delta", "sequence_number": 6, "item_id": "item_001", "output_index": 0, "content_index": 0, "delta": " is Paris."}
 
 // 4. Item transitions in_progress -> completed
-{"type": "response.output_item.done", "sequence_number": 5, "output_index": 0, "item": {"id": "item_001", "type": "message", "status": "completed", "content": [{"type": "output_text", "text": "The capital of France is Paris."}]}}
+{"type": "response.output_item.done", "sequence_number": 7, "output_index": 0, "item": {"id": "item_001", "type": "message", "status": "completed", "content": [{"type": "output_text", "text": "The capital of France is Paris."}]}}
 
 // 5. Response transitions in_progress -> completed
-{"type": "response.completed", "sequence_number": 6, "response": {"id": "resp_001", "status": "completed", "output": [...]}}
+{"type": "response.completed", "sequence_number": 8, "response": {"id": "resp_001", "status": "completed", "output": [...]}}
 ```
 
 ### State Machine Example: Tool Call Response
@@ -202,6 +214,28 @@ When the model decides to call a tool, the response emits a `function_call` item
 
 // 2. Error occurs — response transitions to failed
 {"type": "response.failed", "sequence_number": 1, "response": {"id": "resp_003", "status": "failed", "error": {"type": "model_error", "code": "context_length_exceeded", "message": "Input exceeds maximum context length."}}}
+```
+
+### State Machine Example: Incomplete Response (Token Budget Exhausted)
+
+When an item exhausts its token budget, it ends with `status: incomplete` and the containing response MUST also be `incomplete`:
+
+```json
+// 1. Response starts
+{"type": "response.in_progress", "sequence_number": 0, "response": {"id": "resp_004", "status": "in_progress"}}
+
+// 2. Message item created
+{"type": "response.output_item.added", "sequence_number": 1, "output_index": 0, "item": {"id": "item_050", "type": "message", "status": "in_progress", "content": []}}
+
+// 3. Text deltas stream until token budget runs out
+{"type": "response.output_text.delta", "sequence_number": 2, "item_id": "item_050", "output_index": 0, "content_index": 0, "delta": "The history of the Roman Empire begins"}
+{"type": "response.output_text.delta", "sequence_number": 3, "item_id": "item_050", "output_index": 0, "content_index": 0, "delta": " with the founding of Rome in 753 BC..."}
+
+// 4. Item ends incomplete — token budget exhausted mid-generation
+{"type": "response.output_item.done", "sequence_number": 4, "output_index": 0, "item": {"id": "item_050", "type": "message", "status": "incomplete", "content": [{"type": "output_text", "text": "The history of the Roman Empire begins with the founding of Rome in 753 BC..."}]}}
+
+// 5. Response MUST also be incomplete when any item is incomplete
+{"type": "response.incomplete", "sequence_number": 5, "response": {"id": "resp_004", "status": "incomplete"}}
 ```
 
 ---
@@ -243,40 +277,50 @@ These events signal response-level state machine transitions:
 
 | Event | Purpose | Response Status |
 |-------|---------|----------------|
+| `response.created` | Response object created | `queued` |
+| `response.queued` | Response entered model queue | `queued` |
 | `response.in_progress` | Generation started | `in_progress` |
 | `response.completed` | All output finalized | `completed` |
 | `response.incomplete` | Item exhausted token budget | `incomplete` |
 | `response.failed` | Error occurred | `failed` |
 
+Servers SHOULD NOT use the SSE `id` field.
+
 ### Complete Streaming Sequence: Text Response
 
 ```
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_001","status":"queued"}}
+
+event: response.queued
+data: {"type":"response.queued","sequence_number":1,"response":{"id":"resp_001","status":"queued"}}
+
 event: response.in_progress
-data: {"type":"response.in_progress","sequence_number":0,"response":{"id":"resp_001","status":"in_progress","output":[]}}
+data: {"type":"response.in_progress","sequence_number":2,"response":{"id":"resp_001","status":"in_progress","output":[]}}
 
 event: response.output_item.added
-data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"item_001","type":"message","role":"assistant","status":"in_progress","content":[]}}
+data: {"type":"response.output_item.added","sequence_number":3,"output_index":0,"item":{"id":"item_001","type":"message","role":"assistant","status":"in_progress","content":[]}}
 
 event: response.content_part.added
-data: {"type":"response.content_part.added","sequence_number":2,"item_id":"item_001","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}
+data: {"type":"response.content_part.added","sequence_number":4,"item_id":"item_001","output_index":0,"content_index":0,"part":{"type":"output_text","text":""}}
 
 event: response.output_text.delta
-data: {"type":"response.output_text.delta","sequence_number":3,"item_id":"item_001","output_index":0,"content_index":0,"delta":"The capital"}
+data: {"type":"response.output_text.delta","sequence_number":5,"item_id":"item_001","output_index":0,"content_index":0,"delta":"The capital"}
 
 event: response.output_text.delta
-data: {"type":"response.output_text.delta","sequence_number":4,"item_id":"item_001","output_index":0,"content_index":0,"delta":" of France is Paris."}
+data: {"type":"response.output_text.delta","sequence_number":6,"item_id":"item_001","output_index":0,"content_index":0,"delta":" of France is Paris."}
 
 event: response.output_text.done
-data: {"type":"response.output_text.done","sequence_number":5,"item_id":"item_001","output_index":0,"content_index":0,"text":"The capital of France is Paris."}
+data: {"type":"response.output_text.done","sequence_number":7,"item_id":"item_001","output_index":0,"content_index":0,"text":"The capital of France is Paris."}
 
 event: response.content_part.done
-data: {"type":"response.content_part.done","sequence_number":6,"item_id":"item_001","output_index":0,"content_index":0,"part":{"type":"output_text","text":"The capital of France is Paris."}}
+data: {"type":"response.content_part.done","sequence_number":8,"item_id":"item_001","output_index":0,"content_index":0,"part":{"type":"output_text","text":"The capital of France is Paris."}}
 
 event: response.output_item.done
-data: {"type":"response.output_item.done","sequence_number":7,"output_index":0,"item":{"id":"item_001","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"The capital of France is Paris."}]}}
+data: {"type":"response.output_item.done","sequence_number":9,"output_index":0,"item":{"id":"item_001","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"The capital of France is Paris."}]}}
 
 event: response.completed
-data: {"type":"response.completed","sequence_number":8,"response":{"id":"resp_001","status":"completed","output":[...],"usage":{"input_tokens":12,"output_tokens":9}}}
+data: {"type":"response.completed","sequence_number":10,"response":{"id":"resp_001","status":"completed","output":[...],"usage":{"input_tokens":12,"output_tokens":9}}}
 
 data: [DONE]
 ```

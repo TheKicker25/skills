@@ -50,6 +50,8 @@ Items are polymorphic atomic units discriminated by `type`. **Output items** (th
 
 **Input items** (those sent by the client in a request) have different requirements per type. Content types like `input_text`, `input_image`, and `input_file` do not carry `id` or `status`. `function_call_output` items require `call_id` and `output` but treat `id` and `status` as optional.
 
+**Message roles:** `user`, `assistant`, `system`, `developer`. The `system` role is distinct from the `instructions` parameter — it is an inline message item in the input array. The `developer` role is a separate role that providers may handle differently from `system`.
+
 ### State Machines and Event Emission
 
 The response and item lifecycles are both finite state machines. Each state constrains which events can be emitted.
@@ -58,7 +60,8 @@ The response and item lifecycles are both finite state machines. Each state cons
 
 ```mermaid
 stateDiagram-v2
-    [*] --> queued
+    [*] --> created : response.created
+    created --> queued : response.queued
     queued --> in_progress : response.in_progress
 
     state in_progress {
@@ -79,7 +82,8 @@ stateDiagram-v2
             vendor:custom_event
 
             All delta events carry: sequence_number,
-            output_index, content_index, item_id
+            output_index, item_id
+            Content-level events also carry: content_index
         end note
     }
 
@@ -133,7 +137,8 @@ stateDiagram-v2
 
 | Response State | Valid Events |
 |---------------|-------------|
-| `queued` | *(none — waiting for model)* |
+| `created` | *(transient — response object just created)* |
+| `queued` | *(waiting for model availability)* |
 | `in_progress` | All delta events, all custom events, item lifecycle events |
 | `completed` | *(terminal — no more events except `[DONE]`)* |
 | `incomplete` | *(terminal — no more events except `[DONE]`)* |
@@ -145,14 +150,14 @@ stateDiagram-v2
 | `completed` | *(terminal — no further deltas for this item)* |
 | `incomplete` | *(terminal — no further deltas for this item)* |
 
-All delta and item events carry `sequence_number` (monotonically increasing), `output_index` (position in response output array), and `content_index` (position within a content part) for stream reconstruction and gap detection.
+All delta and item events carry `sequence_number` (monotonically increasing), `output_index` (position in response output array), and `item_id`. Content-level events (text, reasoning summary) additionally carry `content_index` (position within a content part). Servers SHOULD NOT use the SSE `id` field.
 
 ### Streaming Events
 
 Two categories of SSE events:
 
 - **Delta events** — incremental content: `response.output_text.delta`, `response.function_call_arguments.delta`, `response.output_item.added`, `response.output_item.done`, etc.
-- **Lifecycle events** — state transitions: `response.in_progress`, `response.completed`, `response.failed`
+- **Lifecycle events** — state transitions: `response.created`, `response.queued`, `response.in_progress`, `response.completed`, `response.incomplete`, `response.failed`
 
 Rule: the `event` SSE header must match the `type` field inside the JSON body.
 
@@ -209,7 +214,7 @@ The `allowed_tools` form is nested inside `tool_choice`, not a separate top-leve
 }
 ```
 
-This restricts execution without removing tools from the model's context, preserving prompt cache.
+The model MUST restrict its tool calls to the subset named in `allowed_tools`. Servers MUST enforce this as a hard constraint. Tool definitions remain in the model's context, preserving prompt cache.
 
 ---
 
@@ -347,7 +352,7 @@ Clients must silently ignore unknown item types and event types — this is the 
 
 ## Compliance
 
-An API is Open Responses-compliant if it implements the spec directly or is a proper superset.
+An API is Open Responses-compliant if it implements the spec directly or is a proper superset. The published acceptance test suite is available at https://www.openresponses.org/.
 
 ### Core Compliance Tests
 
@@ -365,7 +370,8 @@ An API is Open Responses-compliant if it implements the spec directly or is a pr
 - [ ] `POST /v1/responses` endpoint with `Authorization` header
 - [ ] Valid output items with `id`, `type`, `status`; input items per their type requirements
 - [ ] Item state machine: `in_progress` -> `completed` / `incomplete`
-- [ ] Response state machine: `queued` -> `in_progress` -> `completed` / `incomplete` / `failed`
+- [ ] Response state machine: `created` -> `queued` -> `in_progress` -> `completed` / `incomplete` / `failed`
+- [ ] Emit all 6 lifecycle events: `response.created`, `.queued`, `.in_progress`, `.completed`, `.incomplete`, `.failed`
 - [ ] Response `incomplete` when any item ends `incomplete`
 - [ ] Non-streaming JSON and streaming SSE with `event`/`type` matching
 - [ ] `data: [DONE]` terminal marker
@@ -393,8 +399,11 @@ An API is Open Responses-compliant if it implements the spec directly or is a pr
 
 | Event | Category |
 |-------|----------|
+| `response.created` | Lifecycle |
+| `response.queued` | Lifecycle |
 | `response.in_progress` | Lifecycle |
 | `response.completed` | Lifecycle |
+| `response.incomplete` | Lifecycle |
 | `response.failed` | Lifecycle |
 | `response.output_item.added` / `.done` | Delta |
 | `response.content_part.added` / `.done` | Delta |
@@ -417,7 +426,7 @@ An API is Open Responses-compliant if it implements the spec directly or is a pr
 
 | Object | States | Terminal |
 |--------|--------|---------|
-| Response | queued -> in_progress -> completed / incomplete / failed | completed, incomplete, failed |
+| Response | created -> queued -> in_progress -> completed / incomplete / failed | completed, incomplete, failed |
 | Item | in_progress -> completed / incomplete | completed, incomplete |
 
 If any item ends `incomplete`, the containing response MUST also be `incomplete`.
