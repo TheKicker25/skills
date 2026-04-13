@@ -95,6 +95,82 @@ Supported input formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`
 }
 ```
 
+## API Response Shapes
+
+Image generation and editing use the Responses API with image modalities.
+
+### Request — Generate
+
+`POST https://openrouter.ai/api/v1/responses`
+
+```json
+{
+  "model": "google/gemini-3.1-flash-image-preview",
+  "input": [{ "role": "user", "content": "a red panda wearing sunglasses" }],
+  "modalities": ["image", "text"],
+  "image_config": {
+    "aspect_ratio": "16:9",
+    "image_size": "1K"
+  }
+}
+```
+
+`image_config` is optional — omit it (or individual fields) for model defaults.
+
+### Request — Edit
+
+Same endpoint. Send the source image as multimodal content:
+
+```json
+{
+  "model": "google/gemini-3.1-flash-image-preview",
+  "input": [{
+    "role": "user",
+    "content": [
+      { "type": "input_image", "image_url": "data:image/png;base64,...", "detail": "auto" },
+      { "type": "input_text", "text": "make the sky purple" }
+    ]
+  }],
+  "modalities": ["image", "text"],
+  "image_config": {}
+}
+```
+
+### Response
+
+```json
+{
+  "id": "resp-abc123",
+  "object": "response",
+  "status": "completed",
+  "model": "google/gemini-3.1-flash-image-preview",
+  "output": [
+    {
+      "type": "message",
+      "id": "msg-abc123",
+      "role": "assistant",
+      "status": "completed",
+      "content": [{ "type": "output_text", "text": "Here is your image.", "annotations": [] }]
+    },
+    {
+      "type": "image_generation_call",
+      "id": "imagegen-abc123",
+      "status": "completed",
+      "result": "<base64-encoded image data>"
+    }
+  ],
+  "usage": {
+    "input_tokens": 50,
+    "output_tokens": 1200,
+    "total_tokens": 1250
+  }
+}
+```
+
+- Text appears in `message` output items as `output_text` content parts
+- Images appear as `image_generation_call` output items with base64 data in `result`
+- Either may be absent depending on the model and prompt
+
 ## Using a Different Model
 
 The default model is `google/gemini-3.1-flash-image-preview` (Nano Banana 2). To use a different model, pass `--model <id>` with any OpenRouter model ID that supports image output modalities.

@@ -194,10 +194,44 @@ For dark mode support, add dark variants: swap light backgrounds to dark (`dark:
 
 ---
 
+## API Response Shapes
+
+These are the exact field names returned by the OpenRouter API when querying account information:
+
+`GET https://openrouter.ai/api/v1/auth/key` — returns current API key metadata:
+
+```json
+{
+  "data": {
+    "label": "My API Key",
+    "usage": 42.50,
+    "limit": 100,
+    "is_free_tier": false,
+    "rate_limit": {
+      "requests": 200,
+      "interval": "10s"
+    }
+  }
+}
+```
+
+`GET https://openrouter.ai/api/v1/credits` — returns credit balance:
+
+```json
+{
+  "data": {
+    "total_credits": 100.00,
+    "total_usage": 42.50
+  }
+}
+```
+
+---
+
 ## Using the API Key
 
 ```typescript
-const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+const response = await fetch("https://openrouter.ai/api/v1/responses", {
   method: "POST",
   headers: {
     Authorization: `Bearer ${apiKey}`,
@@ -205,7 +239,7 @@ const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
   },
   body: JSON.stringify({
     model: "openai/gpt-4o-mini",
-    messages: [{ role: "user", content: "Hello!" }],
+    input: [{ role: "user", content: "Hello!" }],
   }),
 });
 ```

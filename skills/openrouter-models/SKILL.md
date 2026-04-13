@@ -126,13 +126,26 @@ Returns for each provider:
 - **Provider-specific pricing** — some providers offer discounts
 - **Supported parameters** — varies by provider (some don't support all features)
 
-## Output Formats
+## API Response Shapes
 
-### list-models.ts / search-models.ts
+### GET /models
+
+`GET https://openrouter.ai/api/v1/models` returns `{ data: Model[] }`.
+
+**Query parameters** (all optional):
+
+| Parameter | Example | Effect |
+|---|---|---|
+| `category` | `?category=programming` | Server-side category filter |
+| `supported_parameters` | `?supported_parameters=tools` | Only models supporting this parameter |
+
+Each Model object has the shape shown below — these are the exact field names returned by the API:
 
 ```json
 {
   "id": "anthropic/claude-sonnet-4",
+  "canonical_slug": "anthropic/claude-sonnet-4-20250514",
+  "hugging_face_id": "null | string",
   "name": "Anthropic: Claude Sonnet 4",
   "description": "...",
   "created": 1747930371,
@@ -146,7 +159,8 @@ Returns for each provider:
     "tokenizer": "Claude",
     "modality": "text+image->text",
     "input_modalities": ["text", "image"],
-    "output_modalities": ["text"]
+    "output_modalities": ["text"],
+    "instruct_type": null
   },
   "top_provider": {
     "context_length": 1000000,
@@ -154,9 +168,76 @@ Returns for each provider:
     "is_moderated": false
   },
   "per_request_limits": null,
-  "supported_parameters": ["max_tokens", "temperature", "tools", "reasoning", "..."]
+  "supported_parameters": ["max_tokens", "temperature", "tools", "reasoning", "..."],
+  "default_parameters": {
+    "temperature": 1,
+    "top_p": 0.95,
+    "top_k": null,
+    "frequency_penalty": null,
+    "presence_penalty": null,
+    "repetition_penalty": null
+  },
+  "knowledge_cutoff": "2025-04-01",
+  "expiration_date": null,
+  "links": {
+    "details": "/api/v1/models/anthropic/claude-sonnet-4-20250514/endpoints"
+  }
 }
 ```
+
+- To check if a model supports a feature, use `model.supported_parameters` (e.g. `.includes("tools")`), or filter server-side with `?supported_parameters=tools`.
+- To check modalities, use `model.architecture.input_modalities` / `model.architecture.output_modalities`.
+- Pricing values are per-token in USD as strings — multiply by 1,000,000 for per-million-token pricing.
+- `knowledge_cutoff` and `expiration_date` are date strings or null.
+- `links.details` points to the per-provider endpoints API for that model.
+
+### GET /models/{id}/endpoints
+
+`GET https://openrouter.ai/api/v1/models/{canonical_slug}/endpoints` returns per-provider performance data. Requires `Authorization: Bearer <key>`.
+
+```json
+{
+  "data": {
+    "id": "anthropic/claude-sonnet-4",
+    "name": "Anthropic: Claude Sonnet 4",
+    "endpoints": [
+      {
+        "provider_name": "Anthropic",
+        "tag": "anthropic",
+        "status": 0,
+        "uptime_last_30m": 100.0,
+        "latency_last_30m": { "p50": 800, "p75": 1200, "p90": 2000, "p99": 5000 },
+        "throughput_last_30m": { "p50": 45, "p75": 55, "p90": 65, "p99": 90 },
+        "context_length": 1000000,
+        "max_completion_tokens": 64000,
+        "max_prompt_tokens": 950000,
+        "pricing": {
+          "prompt": "0.000003",
+          "completion": "0.000015",
+          "input_cache_read": "0.0000003",
+          "discount": 0
+        },
+        "quantization": "unknown",
+        "supports_implicit_caching": true,
+        "supported_parameters": ["max_tokens", "temperature", "tools", "..."]
+      }
+    ]
+  }
+}
+```
+
+- `status`: `0` = operational, non-zero = degraded
+- `uptime_last_30m`: raw float percentage (e.g. `99.5`)
+- `latency_last_30m` / `throughput_last_30m`: percentile objects with `p50`, `p75`, `p90`, `p99`
+- Pricing is per-token in USD as strings (same format as the models endpoint)
+
+## Script Output Formats
+
+The scripts below reformat the raw API data. When calling the API directly (e.g. via `fetch`), use the field names from the API Response Shapes section above.
+
+### list-models.ts / search-models.ts
+
+A subset of the API model fields — the scripts run `formatModel()` which drops `canonical_slug`, `hugging_face_id`, `default_parameters`, `knowledge_cutoff`, and `links`.
 
 ### compare-models.ts
 
