@@ -194,40 +194,6 @@ For dark mode support, add dark variants: swap light backgrounds to dark (`dark:
 
 ---
 
-## API Response Shapes
-
-These are the exact field names returned by the OpenRouter API when querying account information:
-
-`GET https://openrouter.ai/api/v1/auth/key` — returns current API key metadata:
-
-```json
-{
-  "data": {
-    "label": "My API Key",
-    "usage": 42.50,
-    "limit": 100,
-    "is_free_tier": false,
-    "rate_limit": {
-      "requests": 200,
-      "interval": "10s"
-    }
-  }
-}
-```
-
-`GET https://openrouter.ai/api/v1/credits` — returns credit balance:
-
-```json
-{
-  "data": {
-    "total_credits": 100.00,
-    "total_usage": 42.50
-  }
-}
-```
-
----
-
 ## Using the API Key
 
 ```typescript
@@ -251,5 +217,6 @@ For the type-safe SDK approach (`callModel`, streaming, tool use), see the `open
 ## Resources
 
 - [OAuth PKCE guide](https://openrouter.ai/docs/guides/overview/auth/oauth) — full parameter reference and key management
+- [Authentication API reference](https://openrouter.ai/docs/api/reference/authentication) — `/auth/key` and `/credits` response shapes
 - [Live demo](https://openrouterteam.github.io/sign-in-with-openrouter/) — interactive button playground
 - [OpenRouter TypeScript SDK](https://openrouter.ai/docs/sdks/typescript/overview) — `callModel` pattern for completions and streaming
