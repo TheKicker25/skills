@@ -97,7 +97,7 @@ Supported input formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`
 
 ## API Response Shapes
 
-Image generation uses `POST /api/v1/responses` with `modalities: ["image", "text"]`. See the [Responses API reference](https://openrouter.ai/docs/api/reference/create-responses) and [image generation guide](https://openrouter.ai/docs/features/multimodal/image-generation) for full request details.
+Image generation uses `POST /api/v1/responses` with `modalities: ["image", "text"]`. See the [Responses API reference](https://openrouter.ai/docs/api/reference/responses/overview) and [image generation guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation) for full request details.
 
 The image-specific output item type is `image_generation_call` — this is not obvious from the general Responses API docs:
 

@@ -128,10 +128,7 @@ Returns for each provider:
 
 ## API Response Shapes
 
-For full field reference, see:
-- [List models](https://openrouter.ai/docs/api/reference/list-models) — `GET /api/v1/models`
-- [Get a model](https://openrouter.ai/docs/api/reference/get-a-model) — `GET /api/v1/models/{id}`
-- [Get model endpoints](https://openrouter.ai/docs/api/reference/get-model-endpoints) — `GET /api/v1/models/{id}/endpoints`
+For full field reference, see the [Models reference](https://openrouter.ai/docs/guides/overview/models).
 
 **Query parameters** for `GET /models` (all optional):
 
@@ -152,7 +149,7 @@ For full field reference, see:
 
 ## Script Output Formats
 
-The scripts below reformat the raw API data. When calling the API directly (e.g. via `fetch`), use the field names from the API Response Shapes section above.
+The scripts below reformat the raw API data. When calling the API directly (e.g. via `fetch`), refer to the [Models reference](https://openrouter.ai/docs/guides/overview/models) for field names.
 
 ### list-models.ts / search-models.ts
 
