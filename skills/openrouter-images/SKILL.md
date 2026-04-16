@@ -95,6 +95,23 @@ Supported input formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`
 }
 ```
 
+## API Response Shapes
+
+Image generation uses `POST /api/v1/responses` with `modalities: ["image", "text"]`. See the [Responses API reference](https://openrouter.ai/docs/api/reference/responses/overview) and [image generation guide](https://openrouter.ai/docs/guides/overview/multimodal/image-generation) for full request details.
+
+The image-specific output item type is `image_generation_call` — this is not obvious from the general Responses API docs:
+
+```json
+{
+  "type": "image_generation_call",
+  "id": "imagegen-abc123",
+  "status": "completed",
+  "result": "<base64-encoded image data>"
+}
+```
+
+This appears alongside standard `message` output items in the `output` array. Text and image outputs may each be absent depending on the model and prompt.
+
 ## Using a Different Model
 
 The default model is `google/gemini-3.1-flash-image-preview` (Nano Banana 2). To use a different model, pass `--model <id>` with any OpenRouter model ID that supports image output modalities.
