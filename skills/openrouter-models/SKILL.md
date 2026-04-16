@@ -149,7 +149,7 @@ For full field reference, see the [Models reference](https://openrouter.ai/docs/
 
 ## Script Output Formats
 
-The scripts below reformat the raw API data. When calling the API directly (e.g. via `fetch`), refer to the [Models reference](https://openrouter.ai/docs/guides/overview/models) for field names.
+The scripts below reformat the raw API data. When calling the API directly (e.g. via `fetch`), refer to the [OpenAPI spec](https://openrouter.ai/openapi.json) for field names.
 
 ### list-models.ts / search-models.ts
 

@@ -217,6 +217,6 @@ For the type-safe SDK approach (`callModel`, streaming, tool use), see the `open
 ## Resources
 
 - [OAuth PKCE guide](https://openrouter.ai/docs/guides/overview/auth/oauth) — full parameter reference and key management
-- [Authentication API reference](https://openrouter.ai/docs/api/reference/authentication) — `/auth/key` and `/credits` response shapes
+- [Authentication guide](https://openrouter.ai/docs/api/reference/authentication) — API key usage and Bearer token setup
 - [Live demo](https://openrouterteam.github.io/sign-in-with-openrouter/) — interactive button playground
 - [OpenRouter TypeScript SDK](https://openrouter.ai/docs/sdks/typescript/overview) — `callModel` pattern for completions and streaming
