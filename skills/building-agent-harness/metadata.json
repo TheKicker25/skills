@@ -1,0 +1,12 @@
+{
+  "version": "1.0.0",
+  "organization": "OpenRouter Inc",
+  "date": "April 2026",
+  "abstract": "Generates a working agent harness in TypeScript using @openrouter/agent, with configurable tools and production patterns drawn from pi-mono, Claude Code, and Codex architectures.",
+  "references": [
+    "https://openrouter.ai/docs/guides/features/server-tools/overview",
+    "https://openrouter.ai/docs/guides/features/tool-calling",
+    "https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent",
+    "https://github.com/openai/codex"
+  ]
+}
