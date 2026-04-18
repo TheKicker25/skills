@@ -78,8 +78,14 @@ initSessionDir(config.sessionDir);
 const sessionPath = newSessionPath(config.sessionDir);
 const messages = loadSession(sessionPath); // empty for new, or pass existing path
 
-// After each exchange:
+// In the REPL loop, build the input from history + new message:
+messages.push({ role: 'user', content: input });
 saveMessage(sessionPath, { role: 'user', content: input });
+
+const agentInput = messages.length > 1 ? messages : input;
+const result = await runAgentWithRetry(config, agentInput, { onText });
+
+messages.push({ role: 'assistant', content: result.text });
 saveMessage(sessionPath, { role: 'assistant', content: result.text });
 ```
 
@@ -146,12 +152,15 @@ In `agent.ts`, call before `callModel`:
 ```typescript
 import { compactMessages } from './compaction.js';
 
-// Inside runAgent, before calling callModel:
-const compacted = await compactMessages(client, messages, {
-  threshold: 40,
-  keepRecent: 10,
-});
-// Use compacted as the input to callModel
+// Inside runAgent, when input is a message array, compact before calling callModel:
+if (Array.isArray(input)) {
+  const client = new OpenRouter({ apiKey: config.apiKey });
+  input = await compactMessages(client, input as Message[], {
+    threshold: 40,
+    keepRecent: 10,
+  });
+}
+// Then pass input to callModel as usual
 ```
 
 ---

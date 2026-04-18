@@ -53,7 +53,7 @@ inputSchema: z.object({
 })
 ```
 
-- **Behavior**: Use `node:fs` glob (Node 22+) or the `glob` npm package. Respect `.gitignore`. Return array of relative paths, capped at 1000 results.
+- **Behavior**: Use the `glob` npm package (add to dependencies — works on Node 18+). Respect `.gitignore` via the `ignore` option. Return array of relative paths, capped at 1000 results.
 - **Read-only**
 
 ### grep

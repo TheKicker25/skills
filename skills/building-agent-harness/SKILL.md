@@ -213,21 +213,33 @@ export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   // Layer 2: config file
   const configPath = resolve('agent.config.json');
   if (existsSync(configPath)) {
-    const file = JSON.parse(readFileSync(configPath, 'utf-8'));
-    config = { ...config, ...file };
+    try {
+      const file = JSON.parse(readFileSync(configPath, 'utf-8'));
+      config = { ...config, ...file };
+    } catch (err: any) {
+      throw new Error(`Failed to parse agent.config.json: ${err.message}`);
+    }
   }
 
   // Layer 3: environment variables
   if (process.env.OPENROUTER_API_KEY) config.apiKey = process.env.OPENROUTER_API_KEY;
   if (process.env.AGENT_MODEL) config.model = process.env.AGENT_MODEL;
-  if (process.env.AGENT_MAX_STEPS) config.maxSteps = Number(process.env.AGENT_MAX_STEPS);
-  if (process.env.AGENT_MAX_COST) config.maxCost = Number(process.env.AGENT_MAX_COST);
+  if (process.env.AGENT_MAX_STEPS) {
+    const n = Number(process.env.AGENT_MAX_STEPS);
+    if (Number.isFinite(n) && n > 0) config.maxSteps = n;
+  }
+  if (process.env.AGENT_MAX_COST) {
+    const n = Number(process.env.AGENT_MAX_COST);
+    if (Number.isFinite(n) && n > 0) config.maxCost = n;
+  }
 
   // Layer 4: programmatic overrides
   config = { ...config, ...overrides };
 
   if (!config.apiKey) {
-    throw new Error('OPENROUTER_API_KEY is required. Set it in .env, agent.config.json, or pass as override.');
+    throw new Error(
+      'OPENROUTER_API_KEY is required. Set it as an environment variable, in agent.config.json, or pass as override.',
+    );
   }
 
   return config;
@@ -278,7 +290,7 @@ import { tools, serverTools } from './tools/index.js';
 
 export async function runAgent(
   config: AgentConfig,
-  input: string,
+  input: string | unknown[],
   options?: { onText?: (delta: string) => void },
 ) {
   const client = new OpenRouter({ apiKey: config.apiKey });
@@ -313,7 +325,7 @@ export async function runAgent(
 // Retry wrapper for transient errors (429, 5xx)
 export async function runAgentWithRetry(
   config: AgentConfig,
-  input: string,
+  input: string | unknown[],
   options?: { onText?: (delta: string) => void; maxRetries?: number },
 ) {
   const maxRetries = options?.maxRetries ?? 3;

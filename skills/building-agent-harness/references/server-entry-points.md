@@ -21,10 +21,11 @@ import { loadConfig } from './config.js';
 import { runAgentWithRetry } from './agent.js';
 
 const config = loadConfig();
+const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173';
+const MAX_BODY = 1 * 1024 * 1024; // 1 MB
 
 const server = createServer(async (req, res) => {
-  // CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -40,13 +41,30 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // Parse request body
+  // Parse request body with size limit
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const body = JSON.parse(Buffer.concat(chunks).toString());
+  let totalSize = 0;
+  for await (const chunk of req) {
+    totalSize += (chunk as Buffer).length;
+    if (totalSize > MAX_BODY) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Request body too large' }));
+      return;
+    }
+    chunks.push(chunk as Buffer);
+  }
 
-  const { message, messages = [], stream = false } = body;
-  const input = messages.length > 0 ? messages : message;
+  let body: Record<string, unknown>;
+  try {
+    body = JSON.parse(Buffer.concat(chunks).toString());
+  } catch {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Invalid JSON' }));
+    return;
+  }
+
+  const { message, messages = [], stream = false } = body as any;
+  const input: string | unknown[] = messages.length > 0 ? messages : message;
 
   if (stream) {
     // Server-Sent Events streaming
