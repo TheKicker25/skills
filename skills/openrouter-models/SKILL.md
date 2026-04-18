@@ -153,7 +153,7 @@ The scripts below reformat the raw API data. When calling the API directly (e.g.
 
 ### list-models.ts / search-models.ts
 
-A subset of the API model fields — the scripts run `formatModel()` which drops `canonical_slug`, `hugging_face_id`, `default_parameters`, `knowledge_cutoff`, and `links`.
+A subset of the raw API fields — the scripts run `formatModel()` which drops `canonical_slug`, `hugging_face_id`, `default_parameters`, `knowledge_cutoff`, and `links`. If you need those fields, call the API directly.
 
 ### compare-models.ts
 
