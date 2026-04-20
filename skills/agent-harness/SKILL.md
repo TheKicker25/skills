@@ -69,6 +69,7 @@ Server tools go in the `tools` array alongside user-defined tools. No client cod
 | Module | Default | Description |
 |--------|---------|-------------|
 | Session Persistence | ON | JSONL append-only conversation log |
+| ASCII Logo Banner | OFF | Print OpenRouter ASCII art on startup (set `showBanner: true` in config) |
 | Context Compaction | OFF | Summarize older messages when context is long |
 | System Prompt Composition | OFF | Assemble instructions from static + dynamic context |
 | Tool Permissions / Approval | OFF | Gate dangerous tools behind user confirmation |
@@ -82,11 +83,12 @@ After getting checklist selections, follow this workflow:
 
 ```
 - [ ] Generate package.json with dependencies
-- [ ] Generate src/config.ts
+- [ ] Generate src/config.ts (add showBanner field if ASCII Logo Banner is ON)
 - [ ] Generate src/tools/index.ts wiring selected tools + server tools
 - [ ] Generate selected tool files in src/tools/ (see Tool Pattern below, specs in references/tools.md)
 - [ ] Generate src/agent.ts (core runner)
 - [ ] Generate selected harness modules (specs in references/modules.md)
+- [ ] If ASCII Logo Banner is ON: generate src/banner.ts (see ASCII Logo Banner section below)
 - [ ] Generate src/cli.ts entry point (or src/server.ts — see references/server-entry-points.md)
 - [ ] Generate .env.example with OPENROUTER_API_KEY=
 - [ ] Verify: run npx tsc --noEmit to check types
@@ -195,6 +197,7 @@ export interface AgentConfig {
   maxSteps: number;
   maxCost: number;
   sessionDir: string;
+  showBanner: boolean;  // print ASCII logo on startup (optional, default false)
 }
 
 const DEFAULTS: AgentConfig = {
@@ -204,6 +207,7 @@ const DEFAULTS: AgentConfig = {
   maxSteps: 20,
   maxCost: 1.0,
   sessionDir: '.sessions',
+  showBanner: false,
 };
 
 export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
@@ -391,6 +395,54 @@ async function main() {
 
 main();
 ```
+
+---
+
+## ASCII Logo Banner
+
+When `ASCII Logo Banner` is selected, generate `src/banner.ts` and call it from `cli.ts` before the REPL loop.
+
+### src/banner.ts
+
+```typescript
+const RESET = '\x1b[0m';
+const BOLD = '\x1b[1m';
+const DIM = '\x1b[2m';
+const CYAN = '\x1b[36m';
+
+// OpenRouter ASCII logo — fits in a 60-col terminal
+const LOGO = `
+   ██████╗ ██████╗ ███████╗███╗   ██╗
+  ██╔═══██╗██╔══██╗██╔════╝████╗  ██║
+  ██║   ██║██████╔╝█████╗  ██╔██╗ ██║
+  ██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║
+  ╚██████╔╝██║     ███████╗██║ ╚████║
+   ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝
+  ██████╗  ██████╗ ██╗   ██╗████████╗███████╗██████╗
+  ██╔══██╗██╔═══██╗██║   ██║╚══██╔══╝██╔════╝██╔══██╗
+  ██████╔╝██║   ██║██║   ██║   ██║   █████╗  ██████╔╝
+  ██╔══██╗██║   ██║██║   ██║   ██║   ██╔══╝  ██╔══██╗
+  ██║  ██║╚██████╔╝╚██████╔╝   ██║   ███████╗██║  ██║
+  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚══════╝╚═╝  ╚═╝`;
+
+export function printBanner(model: string): void {
+  console.log(CYAN + BOLD + LOGO + RESET);
+  console.log(`  ${DIM}model  ${RESET}${model}\n`);
+}
+```
+
+### Wire into src/cli.ts
+
+Add at the top of `main()`, after `loadConfig()`, when `showBanner` is selected:
+
+```typescript
+import { printBanner } from './banner.js';
+
+// In main(), before the REPL loop:
+if (config.showBanner) printBanner(config.model);
+```
+
+To enable: set `"showBanner": true` in `agent.config.json`, or pass `showBanner: true` to `loadConfig()`.
 
 ---
 
