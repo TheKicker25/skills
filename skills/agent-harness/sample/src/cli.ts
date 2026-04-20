@@ -2,6 +2,7 @@ import { createInterface } from 'readline';
 import { loadConfig } from './config.js';
 import { runAgentWithRetry } from './agent.js';
 import { initSessionDir, saveMessage, newSessionPath } from './session.js';
+import { printBanner } from './banner.js';
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
@@ -11,7 +12,7 @@ const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const GRAY = '\x1b[90m';
 
-function banner(model: string) {
+function textBanner(model: string) {
   const width = Math.min(process.stdout.columns || 60, 60);
   const line = GRAY + '─'.repeat(width) + RESET;
   console.log();
@@ -35,7 +36,11 @@ async function main() {
   const sessionPath = newSessionPath(config.sessionDir);
   const messages: Array<{ role: string; content: string }> = [];
 
-  banner(config.model);
+  if (config.showBanner) {
+    printBanner(config.model);
+  } else {
+    textBanner(config.model);
+  }
 
   const rl = createInterface({
     input: process.stdin,
