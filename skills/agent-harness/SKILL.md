@@ -1,5 +1,5 @@
 ---
-name: building-agent-harness
+name: agent-harness
 description: Generates a working agent harness in TypeScript using @openrouter/agent with configurable tools and production patterns. Presents an interactive checklist of server tools (web search, datetime, image gen), user-defined tools (file ops, shell, grep, glob), and harness modules (session persistence, compaction, approval flow). Use when building an agent, creating a harness, scaffolding an agent project, or building a coding assistant.
 ---
 
