@@ -8,6 +8,7 @@ export interface AgentConfig {
   maxSteps: number;
   maxCost: number;
   sessionDir: string;
+  showBanner: boolean;
 }
 
 const DEFAULTS: AgentConfig = {
@@ -17,6 +18,7 @@ const DEFAULTS: AgentConfig = {
   maxSteps: 20,
   maxCost: 1.0,
   sessionDir: '.sessions',
+  showBanner: false,
 };
 
 export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
