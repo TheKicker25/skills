@@ -48,9 +48,14 @@ export function loadSession(sessionPath: string): Message[] {
     .split('\n')
     .filter(Boolean)
     .map((line) => {
-      const entry: SessionEntry = JSON.parse(line);
-      return entry.message;
-    });
+      try {
+        const entry: SessionEntry = JSON.parse(line);
+        return entry.message;
+      } catch {
+        return null;
+      }
+    })
+    .filter((m): m is Message => m !== null);
 }
 
 export function listSessions(dir: string): string[] {
@@ -244,7 +249,11 @@ export function createShellTool(approvalPolicy: 'always' | 'never' | 'dangerous-
     name: 'shell',
     description: 'Execute a shell command',
     inputSchema: z.object({ command: z.string(), timeout: z.number().optional() }),
-    requireApproval: approvalPolicy !== 'never',
+    requireApproval: approvalPolicy === 'always'
+      ? true
+      : approvalPolicy === 'never'
+        ? false
+        : ({ command }) => /\brm\b|sudo|chmod|chown|\bdd\b|mkfs/.test(command),
     execute: async ({ command, timeout }) => { /* ... */ },
   });
 }

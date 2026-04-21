@@ -1,11 +1,17 @@
 import { OpenRouter } from '@openrouter/agent';
+import type { Item } from '@openrouter/agent';
 import { stepCountIs, maxCost } from '@openrouter/agent/stop-conditions';
 import type { AgentConfig } from './config.js';
-import { tools, serverTools } from './tools/index.js';
+import { tools } from './tools/index.js';
+
+export type ChatMessage = {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+};
 
 export async function runAgent(
   config: AgentConfig,
-  input: string | unknown[],
+  input: string | ChatMessage[],
   options?: { onText?: (delta: string) => void },
 ) {
   const client = new OpenRouter({ apiKey: config.apiKey });
@@ -13,15 +19,14 @@ export async function runAgent(
   const result = client.callModel({
     model: config.model,
     instructions: config.systemPrompt,
-    input: input as any,
-    tools: [...tools],
+    input: input as string | Item[],
+    tools,
     stopWhen: [stepCountIs(config.maxSteps), maxCost(config.maxCost)],
     onTurnStart: async (ctx) => {
       if (options?.onText) options.onText(`[Turn ${ctx.numberOfTurns}]\n`);
     },
   });
 
-  // Stream text to callback if provided
   if (options?.onText) {
     for await (const delta of result.getTextStream()) {
       options.onText(delta);
@@ -37,10 +42,11 @@ export async function runAgent(
   };
 }
 
-// Retry wrapper for transient errors (429, 5xx)
+// Note: if onText streamed partial output before a retryable error, retrying
+// will re-stream from the beginning. For production, buffer per-attempt.
 export async function runAgentWithRetry(
   config: AgentConfig,
-  input: string | unknown[],
+  input: string | ChatMessage[],
   options?: { onText?: (delta: string) => void; maxRetries?: number },
 ) {
   const maxRetries = options?.maxRetries ?? 3;

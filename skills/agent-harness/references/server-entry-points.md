@@ -24,15 +24,27 @@ const config = loadConfig();
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN ?? 'http://localhost:5173';
 const MAX_BODY = 1 * 1024 * 1024; // 1 MB
 
+// WARNING: This server has no authentication. Do not expose on a public
+// interface without adding a bearer token check or similar auth gate.
+// Set AGENT_API_SECRET and check Authorization header for production use.
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', ALLOWED_ORIGIN);
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
     res.end();
     return;
+  }
+
+  if (process.env.AGENT_API_SECRET) {
+    const auth = req.headers['authorization'];
+    if (auth !== `Bearer ${process.env.AGENT_API_SECRET}`) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized' }));
+      return;
+    }
   }
 
   if (req.method !== 'POST' || req.url !== '/chat') {
@@ -63,8 +75,18 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  const { message, messages = [], stream = false } = body as any;
-  const input: string | unknown[] = messages.length > 0 ? messages : message;
+  const { message, messages = [], stream = false } = body as {
+    message?: string;
+    messages?: Array<{ role: string; content: string }>;
+    stream?: boolean;
+  };
+  const input = messages.length > 0 ? messages : message;
+
+  if (!input) {
+    res.writeHead(400, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Provide "message" (string) or "messages" (array)' }));
+    return;
+  }
 
   if (stream) {
     // Server-Sent Events streaming

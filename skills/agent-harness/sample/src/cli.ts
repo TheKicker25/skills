@@ -1,6 +1,6 @@
 import { createInterface } from 'readline';
 import { loadConfig } from './config.js';
-import { runAgentWithRetry } from './agent.js';
+import { runAgentWithRetry, type ChatMessage } from './agent.js';
 import { initSessionDir, saveMessage, newSessionPath } from './session.js';
 import { printBanner } from './banner.js';
 
@@ -34,7 +34,7 @@ async function main() {
 
   initSessionDir(config.sessionDir);
   const sessionPath = newSessionPath(config.sessionDir);
-  const messages: Array<{ role: string; content: string }> = [];
+  const messages: ChatMessage[] = [];
 
   if (config.showBanner) {
     printBanner(config.model);
@@ -65,7 +65,7 @@ async function main() {
     messages.push({ role: 'user', content: input });
     saveMessage(sessionPath, { role: 'user', content: input });
 
-    process.stdout.write(`\n${CYAN}`);
+    console.log();
 
     const spinnerFrames = ['·', '··', '···'];
     let spinnerIdx = 0;

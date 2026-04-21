@@ -69,7 +69,7 @@ Server tools go in the `tools` array alongside user-defined tools. No client cod
 | Module | Default | Description |
 |--------|---------|-------------|
 | Session Persistence | ON | JSONL append-only conversation log |
-| ASCII Logo Banner | OFF | Print OpenRouter ASCII art on startup (set `showBanner: true` in config) |
+| ASCII Logo Banner | OFF | Custom ASCII art banner on startup — ask for project name |
 | Context Compaction | OFF | Summarize older messages when context is long |
 | System Prompt Composition | OFF | Assemble instructions from static + dynamic context |
 | Tool Permissions / Approval | OFF | Gate dangerous tools behind user confirmation |
@@ -146,25 +146,15 @@ These files are always generated. The agent adapts them based on checklist selec
 
 ### package.json
 
-```json
-{
-  "name": "my-agent",
-  "version": "0.1.0",
-  "type": "module",
-  "scripts": {
-    "start": "tsx src/cli.ts",
-    "dev": "tsx watch src/cli.ts"
-  },
-  "dependencies": {
-    "@openrouter/agent": "^0.3.0",
-    "zod": "^4.0.0"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "tsx": "^4.0.0",
-    "typescript": "^5.7.0"
-  }
-}
+Initialize the project and install dependencies at their latest versions:
+
+```bash
+npm init -y
+npm pkg set type=module
+npm pkg set scripts.start="tsx src/cli.ts"
+npm pkg set scripts.dev="tsx watch src/cli.ts"
+npm install @openrouter/agent glob zod
+npm install -D tsx typescript @types/node
 ```
 
 ### tsconfig.json
@@ -255,6 +245,7 @@ export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
 Adapt imports based on checklist selections. This example includes all default-ON tools:
 
 ```typescript
+import { serverTool } from '@openrouter/agent';
 import { fileReadTool } from './file-read.js';
 import { fileWriteTool } from './file-write.js';
 import { fileEditTool } from './file-edit.js';
@@ -263,8 +254,8 @@ import { grepTool } from './grep.js';
 import { listDirTool } from './list-dir.js';
 import { shellTool } from './shell.js';
 
-// User-defined tools executed client-side
 export const tools = [
+  // User-defined tools — executed client-side
   fileReadTool,
   fileWriteTool,
   fileEditTool,
@@ -272,15 +263,10 @@ export const tools = [
   grepTool,
   listDirTool,
   shellTool,
-];
 
-// OpenRouter server tools — executed server-side, no implementation needed.
-// Pass these alongside user-defined tools in the callModel request.
-// Note: server tool objects have a different shape from user-defined tools,
-// so they are kept separate and spread into the tools array at call time.
-export const serverTools: Array<{ type: string }> = [
-  { type: 'openrouter:web_search' },
-  { type: 'openrouter:datetime' },
+  // Server tools — executed by OpenRouter, no client implementation needed
+  serverTool({ type: 'openrouter:web_search' }),
+  serverTool({ type: 'openrouter:datetime', parameters: { timezone: 'UTC' } }),
 ];
 ```
 
@@ -288,13 +274,19 @@ export const serverTools: Array<{ type: string }> = [
 
 ```typescript
 import { OpenRouter } from '@openrouter/agent';
+import type { Item } from '@openrouter/agent';
 import { stepCountIs, maxCost } from '@openrouter/agent/stop-conditions';
 import type { AgentConfig } from './config.js';
-import { tools, serverTools } from './tools/index.js';
+import { tools } from './tools/index.js';
+
+export type ChatMessage = {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+};
 
 export async function runAgent(
   config: AgentConfig,
-  input: string | unknown[],
+  input: string | ChatMessage[],
   options?: { onText?: (delta: string) => void },
 ) {
   const client = new OpenRouter({ apiKey: config.apiKey });
@@ -302,8 +294,8 @@ export async function runAgent(
   const result = client.callModel({
     model: config.model,
     instructions: config.systemPrompt,
-    input,
-    tools: [...tools, ...serverTools] as any,
+    input: input as string | Item[],
+    tools,
     stopWhen: [stepCountIs(config.maxSteps), maxCost(config.maxCost)],
     onTurnStart: async (ctx) => {
       if (options?.onText) options.onText(`[Turn ${ctx.numberOfTurns}]\n`);
@@ -326,10 +318,13 @@ export async function runAgent(
   };
 }
 
-// Retry wrapper for transient errors (429, 5xx)
+// Retry wrapper for transient errors (429, 5xx).
+// Note: if onText streamed partial output before the error, retrying will
+// re-stream from the beginning. For production use, buffer per-attempt and
+// flush only on success, or handle deduplication in the caller.
 export async function runAgentWithRetry(
   config: AgentConfig,
-  input: string | unknown[],
+  input: string | ChatMessage[],
   options?: { onText?: (delta: string) => void; maxRetries?: number },
 ) {
   const maxRetries = options?.maxRetries ?? 3;
@@ -359,38 +354,69 @@ import { createInterface } from 'readline';
 import { loadConfig } from './config.js';
 import { runAgentWithRetry } from './agent.js';
 
+const DIM = '\x1b[2m';
+const RESET = '\x1b[0m';
+const BOLD = '\x1b[1m';
+const CYAN = '\x1b[36m';
+const GREEN = '\x1b[32m';
+const YELLOW = '\x1b[33m';
+const GRAY = '\x1b[90m';
+
+function formatTokens(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+}
+
 async function main() {
   const config = loadConfig();
 
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const prompt = () => new Promise<string>((resolve) => rl.question('> ', resolve));
+  // Banner
+  const width = Math.min(process.stdout.columns || 60, 60);
+  const line = GRAY + '─'.repeat(width) + RESET;
+  console.log(`\n${line}`);
+  console.log(`  ${BOLD}My Agent${RESET}  ${DIM}v0.1.0${RESET}`);
+  console.log(`  ${DIM}model${RESET}  ${CYAN}${config.model}${RESET}`);
+  console.log(`${line}\n`);
 
-  console.log(`Agent ready (model: ${config.model}). Type "exit" to quit.\n`);
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: `${GREEN}>${RESET} `,
+  });
+  rl.prompt();
 
-  while (true) {
-    const input = await prompt();
-    if (input.trim().toLowerCase() === 'exit') break;
-    if (!input.trim()) continue;
+  rl.on('line', async (line) => {
+    const input = line.trim();
+    if (!input) { rl.prompt(); return; }
+    if (input.toLowerCase() === 'exit') { rl.close(); process.exit(0); }
+
+    console.log();
+    const dots = ['·', '··', '···'];
+    let i = 0, started = false;
+    const spin = setInterval(() => {
+      if (!started) process.stdout.write(`\r${DIM}${dots[i++ % 3]}${RESET}`);
+    }, 300);
 
     try {
       const result = await runAgentWithRetry(config, input, {
-        onText: (delta) => process.stdout.write(delta),
+        onText: (d) => {
+          if (!started) { started = true; process.stdout.write('\r\x1b[K'); }
+          process.stdout.write(d);
+        },
       });
+      clearInterval(spin);
+      process.stdout.write(RESET);
 
-      console.log('\n');
-
-      const { usage } = result;
-      if (usage) {
-        console.log(
-          `[tokens: ${usage.inputTokens ?? 0} in / ${usage.outputTokens ?? 0} out]\n`,
-        );
-      }
+      const inT = result.usage?.inputTokens ?? 0;
+      const outT = result.usage?.outputTokens ?? 0;
+      console.log(`\n${GRAY}  ${formatTokens(inT)} in · ${formatTokens(outT)} out${RESET}\n`);
     } catch (err: any) {
-      console.error(`\nError: ${err.message}\n`);
+      clearInterval(spin);
+      console.log(`${RESET}\n${YELLOW}  Error: ${err.message}${RESET}\n`);
     }
-  }
+    rl.prompt();
+  });
 
-  rl.close();
+  rl.on('close', () => process.exit(0));
 }
 
 main();
@@ -400,9 +426,11 @@ main();
 
 ## ASCII Logo Banner
 
-When `ASCII Logo Banner` is selected, generate `src/banner.ts` and call it from `cli.ts` before the REPL loop.
+When `ASCII Logo Banner` is selected, ask the user for their project name, then generate `src/banner.ts` with ASCII art of that name. Use a block-letter style with the `█` character for the art. The banner should fit in a 60-column terminal.
 
 ### src/banner.ts
+
+Generate ASCII art for the user's project name. Example for a project called "ACME":
 
 ```typescript
 const RESET = '\x1b[0m';
@@ -410,20 +438,13 @@ const BOLD = '\x1b[1m';
 const DIM = '\x1b[2m';
 const CYAN = '\x1b[36m';
 
-// OpenRouter ASCII logo — fits in a 60-col terminal
 const LOGO = `
-   ██████╗ ██████╗ ███████╗███╗   ██╗
-  ██╔═══██╗██╔══██╗██╔════╝████╗  ██║
-  ██║   ██║██████╔╝█████╗  ██╔██╗ ██║
-  ██║   ██║██╔═══╝ ██╔══╝  ██║╚██╗██║
-  ╚██████╔╝██║     ███████╗██║ ╚████║
-   ╚═════╝ ╚═╝     ╚══════╝╚═╝  ╚═══╝
-  ██████╗  ██████╗ ██╗   ██╗████████╗███████╗██████╗
-  ██╔══██╗██╔═══██╗██║   ██║╚══██╔══╝██╔════╝██╔══██╗
-  ██████╔╝██║   ██║██║   ██║   ██║   █████╗  ██████╔╝
-  ██╔══██╗██║   ██║██║   ██║   ██║   ██╔══╝  ██╔══██╗
-  ██║  ██║╚██████╔╝╚██████╔╝   ██║   ███████╗██║  ██║
-  ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝   ╚══════╝╚═╝  ╚═╝`;
+   █████╗  ██████╗███╗   ███╗███████╗
+  ██╔══██╗██╔════╝████╗ ████║██╔════╝
+  ███████║██║     ██╔████╔██║█████╗
+  ██╔══██║██║     ██║╚██╔╝██║██╔══╝
+  ██║  ██║╚██████╗██║ ╚═╝ ██║███████╗
+  ╚═╝  ╚═╝ ╚═════╝╚═╝     ╚═╝╚══════╝`;
 
 export function printBanner(model: string): void {
   console.log(CYAN + BOLD + LOGO + RESET);
@@ -431,18 +452,24 @@ export function printBanner(model: string): void {
 }
 ```
 
+Adapt the ASCII art to the user's actual project name. Keep it to one or two short words that fit in 60 columns.
+
 ### Wire into src/cli.ts
 
-Add at the top of `main()`, after `loadConfig()`, when `showBanner` is selected:
+Add at the top of `main()`, before the text banner, when `showBanner` is selected:
 
 ```typescript
 import { printBanner } from './banner.js';
 
-// In main(), before the REPL loop:
-if (config.showBanner) printBanner(config.model);
+// In main(), replace the text banner with:
+if (config.showBanner) {
+  printBanner(config.model);
+} else {
+  // fall back to the text banner from the cli.ts template above
+}
 ```
 
-To enable: set `"showBanner": true` in `agent.config.json`, or pass `showBanner: true` to `loadConfig()`.
+Add `showBanner: boolean` to `AgentConfig` (default `false`). Enable via `agent.config.json` or `loadConfig({ showBanner: true })`.
 
 ---
 

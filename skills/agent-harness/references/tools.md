@@ -193,8 +193,9 @@ inputSchema: z.object({
 Fetch a web page and extract text content.
 
 - **inputSchema**: `url` (string)
-- **Behavior**: `fetch(url)`, get HTML, strip tags to extract text content. Truncate to 50KB. Return `{ url, title, text }`.
+- **Behavior**: Validate URL first (block `localhost`, `127.0.0.1`, `169.254.*`, and other internal addresses to prevent SSRF). Then `fetch(url)`, get HTML, strip tags to extract text content. Truncate to 50KB. Return `{ url, title, text }`.
 - **Key detail**: Use a simple regex-based HTML-to-text approach, or shell out to a tool like `lynx -dump` if available.
+- **Security**: Do not enable alongside the HTTP server entry point without URL validation — internal network probing is possible otherwise.
 - **Read-only**
 
 ### view_image

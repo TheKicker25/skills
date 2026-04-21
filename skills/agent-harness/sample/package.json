@@ -7,7 +7,7 @@
     "dev": "tsx watch src/cli.ts"
   },
   "dependencies": {
-    "@openrouter/agent": "^0.3.0",
+    "@openrouter/agent": "^0.4.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
