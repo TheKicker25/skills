@@ -18,7 +18,7 @@ const DEFAULTS: AgentConfig = {
   maxSteps: 20,
   maxCost: 1.0,
   sessionDir: '.sessions',
-  showBanner: false,
+  showBanner: true,
 };
 
 export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
