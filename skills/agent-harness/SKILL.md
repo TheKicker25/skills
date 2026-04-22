@@ -88,6 +88,7 @@ After getting checklist selections, follow this workflow:
 - [ ] Generate selected tool files in src/tools/ (see Tool Pattern below, specs in references/tools.md)
 - [ ] Generate src/agent.ts (core runner)
 - [ ] Generate selected harness modules (specs in references/modules.md)
+- [ ] Generate src/renderer.ts (TUI display — see references/tui.md)
 - [ ] If ASCII Logo Banner is ON: generate src/banner.ts (see ASCII Logo Banner section below)
 - [ ] Generate src/cli.ts entry point (or src/server.ts — see references/server-entry-points.md)
 - [ ] Generate .env.example with OPENROUTER_API_KEY=
@@ -180,6 +181,12 @@ npm install -D tsx typescript @types/node
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
+export interface DisplayConfig {
+  toolCalls: 'compact' | 'verbose' | 'hidden';
+  toolResults: 'compact' | 'verbose' | 'hidden';
+  reasoning: boolean;
+}
+
 export interface AgentConfig {
   apiKey: string;
   model: string;
@@ -187,55 +194,39 @@ export interface AgentConfig {
   maxSteps: number;
   maxCost: number;
   sessionDir: string;
-  showBanner: boolean;  // print ASCII logo on startup (optional, default false)
+  showBanner: boolean;
+  display: DisplayConfig;
+  slashCommands: boolean;
 }
 
 const DEFAULTS: AgentConfig = {
   apiKey: '',
-  model: 'anthropic/claude-opus-4.7', // check openrouter.ai/models for current availability
+  model: 'anthropic/claude-opus-4.7',
   systemPrompt: 'You are a helpful assistant with access to tools.',
   maxSteps: 20,
   maxCost: 1.0,
   sessionDir: '.sessions',
   showBanner: false,
+  display: { toolCalls: 'compact', toolResults: 'compact', reasoning: false },
+  slashCommands: true,
 };
 
 export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
-  // Layer 1: defaults
   let config = { ...DEFAULTS };
 
-  // Layer 2: config file
   const configPath = resolve('agent.config.json');
   if (existsSync(configPath)) {
-    try {
-      const file = JSON.parse(readFileSync(configPath, 'utf-8'));
-      config = { ...config, ...file };
-    } catch (err: any) {
-      throw new Error(`Failed to parse agent.config.json: ${err.message}`);
-    }
+    const file = JSON.parse(readFileSync(configPath, 'utf-8'));
+    config = { ...config, ...file };
   }
 
-  // Layer 3: environment variables
   if (process.env.OPENROUTER_API_KEY) config.apiKey = process.env.OPENROUTER_API_KEY;
   if (process.env.AGENT_MODEL) config.model = process.env.AGENT_MODEL;
-  if (process.env.AGENT_MAX_STEPS) {
-    const n = Number(process.env.AGENT_MAX_STEPS);
-    if (Number.isFinite(n) && n > 0) config.maxSteps = n;
-  }
-  if (process.env.AGENT_MAX_COST) {
-    const n = Number(process.env.AGENT_MAX_COST);
-    if (Number.isFinite(n) && n > 0) config.maxCost = n;
-  }
+  if (process.env.AGENT_MAX_STEPS) config.maxSteps = Number(process.env.AGENT_MAX_STEPS);
+  if (process.env.AGENT_MAX_COST) config.maxCost = Number(process.env.AGENT_MAX_COST);
 
-  // Layer 4: programmatic overrides
   config = { ...config, ...overrides };
-
-  if (!config.apiKey) {
-    throw new Error(
-      'OPENROUTER_API_KEY is required. Set it as an environment variable, in agent.config.json, or pass as override.',
-    );
-  }
-
+  if (!config.apiKey) throw new Error('OPENROUTER_API_KEY is required.');
   return config;
 }
 ```
@@ -279,15 +270,18 @@ import { stepCountIs, maxCost } from '@openrouter/agent/stop-conditions';
 import type { AgentConfig } from './config.js';
 import { tools } from './tools/index.js';
 
-export type ChatMessage = {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-};
+export type ChatMessage = { role: 'user' | 'assistant' | 'system'; content: string };
+
+export type AgentEvent =
+  | { type: 'text'; delta: string }
+  | { type: 'tool_call'; name: string; callId: string; args: Record<string, unknown> }
+  | { type: 'tool_result'; name: string; callId: string; output: string }
+  | { type: 'reasoning'; delta: string };
 
 export async function runAgent(
   config: AgentConfig,
   input: string | ChatMessage[],
-  options?: { onText?: (delta: string) => void },
+  options?: { onEvent?: (event: AgentEvent) => void },
 ) {
   const client = new OpenRouter({ apiKey: config.apiKey });
 
@@ -297,52 +291,58 @@ export async function runAgent(
     input: input as string | Item[],
     tools,
     stopWhen: [stepCountIs(config.maxSteps), maxCost(config.maxCost)],
-    onTurnStart: async (ctx) => {
-      if (options?.onText) options.onText(`[Turn ${ctx.numberOfTurns}]\n`);
-    },
   });
 
-  // Stream text to callback if provided
-  if (options?.onText) {
-    for await (const delta of result.getTextStream()) {
-      options.onText(delta);
+  if (options?.onEvent) {
+    let lastTextLen = 0;
+    const callNames = new Map<string, string>();
+
+    for await (const item of result.getItemsStream()) {
+      if (item.type === 'message') {
+        const text = item.content
+          ?.filter((c): c is { type: 'output_text'; text: string } => 'text' in c)
+          .map((c) => c.text)
+          .join('') ?? '';
+        if (text.length > lastTextLen) {
+          options.onEvent({ type: 'text', delta: text.slice(lastTextLen) });
+          lastTextLen = text.length;
+        }
+      } else if (item.type === 'function_call' && item.status === 'completed') {
+        callNames.set(item.callId, item.name);
+        const args = item.arguments ? JSON.parse(item.arguments) : {};
+        options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
+      } else if (item.type === 'function_call_output') {
+        const out = typeof item.output === 'string' ? item.output : JSON.stringify(item.output);
+        options.onEvent({
+          type: 'tool_result',
+          name: callNames.get(item.callId) ?? 'unknown',
+          callId: item.callId,
+          output: out.length > 200 ? out.slice(0, 200) + '…' : out,
+        });
+      } else if (item.type === 'reasoning') {
+        const text = item.summary?.map((s: { text: string }) => s.text).join('') ?? '';
+        if (text) options.onEvent({ type: 'reasoning', delta: text });
+      }
     }
   }
 
   const response = await result.getResponse();
-
-  return {
-    text: response.outputText ?? '',
-    usage: response.usage,
-    output: response.output,
-  };
+  return { text: response.outputText ?? '', usage: response.usage, output: response.output };
 }
 
-// Retry wrapper for transient errors (429, 5xx).
-// Note: if onText streamed partial output before the error, retrying will
-// re-stream from the beginning. For production use, buffer per-attempt and
-// flush only on success, or handle deduplication in the caller.
 export async function runAgentWithRetry(
   config: AgentConfig,
   input: string | ChatMessage[],
-  options?: { onText?: (delta: string) => void; maxRetries?: number },
+  options?: { onEvent?: (event: AgentEvent) => void; maxRetries?: number },
 ) {
-  const maxRetries = options?.maxRetries ?? 3;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await runAgent(config, input, options);
-    } catch (err: any) {
-      const status = err?.status ?? err?.statusCode;
-      const retryable = status === 429 || (status >= 500 && status < 600);
-
-      if (!retryable || attempt === maxRetries) throw err;
-
-      const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
-      await new Promise((r) => setTimeout(r, delay));
+  for (let attempt = 0, max = options?.maxRetries ?? 3; attempt <= max; attempt++) {
+    try { return await runAgent(config, input, options); }
+    catch (err: any) {
+      const s = err?.status ?? err?.statusCode;
+      if (!(s === 429 || (s >= 500 && s < 600)) || attempt === max) throw err;
+      await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** attempt, 30000)));
     }
   }
-
   throw new Error('Unreachable');
 }
 ```
@@ -350,9 +350,9 @@ export async function runAgentWithRetry(
 ### src/cli.ts
 
 ```typescript
-import { createInterface } from 'readline';
-import { loadConfig } from './config.js';
-import { runAgentWithRetry } from './agent.js';
+import { createInterface, type Interface } from 'readline';
+import { loadConfig, type AgentConfig } from './config.js';
+import { runAgentWithRetry, type AgentEvent } from './agent.js';
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
@@ -366,15 +366,47 @@ function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
+function summarizeArgs(name: string, args: Record<string, unknown>): string {
+  const key = { shell: 'command', file_read: 'path', file_write: 'path',
+    file_edit: 'path', glob: 'pattern', grep: 'pattern', web_search: 'query',
+  }[name] ?? Object.keys(args)[0];
+  if (!key || !(key in args)) return '';
+  const val = String(args[key]);
+  return `${key}=${val.length > 40 ? val.slice(0, 40) + '…' : val}`;
+}
+
+function ask(rl: Interface, prompt: string): Promise<string> {
+  return new Promise((r) => rl.question(prompt, r));
+}
+
+async function selectModel(config: AgentConfig, rl: Interface): Promise<void> {
+  const query = await ask(rl, `  ${DIM}Search models:${RESET} `);
+  if (!query.trim()) return;
+  process.stdout.write(`  ${DIM}Fetching…${RESET}`);
+  const res = await fetch('https://openrouter.ai/api/v1/models');
+  const { data } = await res.json() as { data: { id: string; name: string }[] };
+  process.stdout.write('\r\x1b[K');
+  const q = query.toLowerCase();
+  const matches = data.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)).slice(0, 15);
+  if (!matches.length) { console.log(`  ${DIM}No models matching "${query}".${RESET}\n`); return; }
+  matches.forEach((m, i) => console.log(`  ${DIM}${String(i + 1).padStart(2)})${RESET} ${m.id}`));
+  const pick = await ask(rl, `\n  ${DIM}Select (1-${matches.length}):${RESET} `);
+  const idx = parseInt(pick) - 1;
+  if (idx >= 0 && idx < matches.length) {
+    config.model = matches[idx].id;
+    console.log(`  ${DIM}Model →${RESET} ${CYAN}${config.model}${RESET}\n`);
+  } else { console.log(`  ${DIM}Cancelled.${RESET}\n`); }
+}
+
 async function main() {
   const config = loadConfig();
 
-  // Banner
   const width = Math.min(process.stdout.columns || 60, 60);
   const line = GRAY + '─'.repeat(width) + RESET;
   console.log(`\n${line}`);
   console.log(`  ${BOLD}My Agent${RESET}  ${DIM}v0.1.0${RESET}`);
   console.log(`  ${DIM}model${RESET}  ${CYAN}${config.model}${RESET}`);
+  if (config.slashCommands) console.log(`  ${DIM}/model to change${RESET}`);
   console.log(`${line}\n`);
 
   const rl = createInterface({
@@ -384,34 +416,56 @@ async function main() {
   });
   rl.prompt();
 
-  rl.on('line', async (line) => {
-    const input = line.trim();
-    if (!input) { rl.prompt(); return; }
-    if (input.toLowerCase() === 'exit') { rl.close(); process.exit(0); }
+  rl.on('line', async (input) => {
+    const trimmed = input.trim();
+    if (!trimmed) { rl.prompt(); return; }
+    if (trimmed.toLowerCase() === 'exit') { rl.close(); process.exit(0); }
+    if (trimmed === '/model' && config.slashCommands) {
+      console.log(`  ${DIM}Current:${RESET} ${CYAN}${config.model}${RESET}`);
+      await selectModel(config, rl);
+      rl.prompt(); return;
+    }
 
     console.log();
+    let streaming = false;
+    let started = false;
+    const toolStart = new Map<string, number>();
+
     const dots = ['·', '··', '···'];
-    let i = 0, started = false;
+    let di = 0;
     const spin = setInterval(() => {
-      if (!started) process.stdout.write(`\r${DIM}${dots[i++ % 3]}${RESET}`);
+      if (!started) process.stdout.write(`\r${DIM}${dots[di++ % 3]}${RESET}`);
     }, 300);
 
+    const handleEvent = (event: AgentEvent) => {
+      if (!started) { started = true; process.stdout.write('\r\x1b[K'); }
+      if (event.type === 'text') {
+        if (!streaming) { streaming = true; process.stdout.write(CYAN); }
+        process.stdout.write(event.delta);
+      } else if (event.type === 'tool_call') {
+        if (streaming) { process.stdout.write(RESET + '\n'); streaming = false; }
+        toolStart.set(event.callId, Date.now());
+        const args = summarizeArgs(event.name, event.args);
+        console.log(`  ${YELLOW}⚡${RESET} ${DIM}${event.name}${args ? ' ' + args : ''}${RESET}`);
+      } else if (event.type === 'tool_result') {
+        const ms = Date.now() - (toolStart.get(event.callId) ?? Date.now());
+        console.log(`  ${GREEN}✓${RESET} ${DIM}${event.name} (${(ms / 1000).toFixed(1)}s)${RESET}`);
+        started = false;
+      }
+    };
+
     try {
-      const result = await runAgentWithRetry(config, input, {
-        onText: (d) => {
-          if (!started) { started = true; process.stdout.write('\r\x1b[K'); }
-          process.stdout.write(d);
-        },
-      });
+      const result = await runAgentWithRetry(config, trimmed, { onEvent: handleEvent });
       clearInterval(spin);
-      process.stdout.write(RESET);
+      if (streaming) process.stdout.write(RESET);
 
       const inT = result.usage?.inputTokens ?? 0;
       const outT = result.usage?.outputTokens ?? 0;
       console.log(`\n${GRAY}  ${formatTokens(inT)} in · ${formatTokens(outT)} out${RESET}\n`);
     } catch (err: any) {
       clearInterval(spin);
-      console.log(`${RESET}\n${YELLOW}  Error: ${err.message}${RESET}\n`);
+      if (streaming) process.stdout.write(RESET);
+      console.log(`\n${YELLOW}  Error: ${err.message}${RESET}\n`);
     }
     rl.prompt();
   });
@@ -479,4 +533,5 @@ For content beyond the core files:
 
 - **[references/tools.md](references/tools.md)** — Specs for all user-defined tools: file-read, file-write, file-edit, glob, grep, list-dir, shell, js-repl, sub-agent, plan, request-input, web-fetch, view-image, custom template
 - **[references/modules.md](references/modules.md)** — Harness modules: session persistence, context compaction, system prompt composition, tool approval, structured logging
+- **[references/tui.md](references/tui.md)** — TUI renderer: tool call display, message coloring, per-tool formatters, display config
 - **[references/server-entry-points.md](references/server-entry-points.md)** — Express/Hono API server entry point with SSE streaming, plus extension points (MCP, WebSocket, dynamic models)

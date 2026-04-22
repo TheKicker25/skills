@@ -8,7 +8,6 @@ import { listDirTool } from './list-dir.js';
 import { shellTool } from './shell.js';
 
 export const tools = [
-  // User-defined tools — executed client-side
   fileReadTool,
   fileWriteTool,
   fileEditTool,
@@ -17,7 +16,6 @@ export const tools = [
   listDirTool,
   shellTool,
 
-  // Server tools — executed by OpenRouter, no client implementation needed
   serverTool({ type: 'openrouter:web_search' }),
   serverTool({ type: 'openrouter:datetime', parameters: { timezone: 'UTC' } }),
 ];

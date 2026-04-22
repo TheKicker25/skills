@@ -2,7 +2,6 @@ import { tool } from '@openrouter/agent/tool';
 import { z } from 'zod';
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { resolve } from 'path';
 
 const execFileAsync = promisify(execFile);
 
@@ -13,53 +12,29 @@ export const grepTool = tool({
     pattern: z.string().describe('Regex pattern to search for'),
     path: z.string().optional().describe('Directory or file to search (default: cwd)'),
     glob: z.string().optional().describe('File filter, e.g. "*.ts"'),
-    ignoreCase: z.boolean().optional().describe('Case-insensitive search'),
+    ignoreCase: z.boolean().optional(),
   }),
   execute: async ({ pattern, path, glob: fileGlob, ignoreCase }) => {
+    const searchPath = path ?? process.cwd();
+    const args = ['--no-heading', '--line-number', '--color=never'];
+    if (ignoreCase) args.push('-i');
+    if (fileGlob) args.push('--glob', fileGlob);
+    args.push(pattern, searchPath);
+
     try {
-      const searchPath = path ? resolve(path) : process.cwd();
-      const args = ['--json', '--max-count=100'];
-
-      if (ignoreCase) args.push('--ignore-case');
-      if (fileGlob) args.push('--glob', fileGlob);
-      args.push(pattern, searchPath);
-
-      try {
-        const { stdout } = await execFileAsync('rg', args, {
-          maxBuffer: 256 * 1024,
-          timeout: 30000,
-        });
-
-        const matches: Array<{ file: string; line: number; content: string }> = [];
-        for (const line of stdout.split('\n').filter(Boolean)) {
-          try {
-            const parsed = JSON.parse(line);
-            if (parsed.type === 'match') {
-              matches.push({
-                file: parsed.data.path.text,
-                line: parsed.data.line_number,
-                content: parsed.data.lines.text.trimEnd(),
-              });
-            }
-          } catch {
-            // skip malformed lines
-          }
-        }
-
-        return {
-          matches: matches.slice(0, 100),
-          count: matches.length,
-          ...(matches.length >= 100 && { truncated: true }),
-        };
-      } catch (rgErr: any) {
-        // ripgrep not found or no matches (exit code 1)
-        if (rgErr.code === 'ENOENT' || rgErr.status === 1) {
-          // Fallback: return empty or note that rg is not installed
-          return { matches: [], count: 0, note: 'ripgrep (rg) not found or no matches' };
-        }
-        return { error: rgErr.message };
-      }
+      const { stdout } = await execFileAsync('rg', args, {
+        maxBuffer: 256 * 1024,
+        timeout: 30000,
+      });
+      const matches = stdout.split('\n').filter(Boolean).slice(0, 100).map((line) => {
+        const match = line.match(/^(.+?):(\d+):(.*)$/);
+        if (!match) return { raw: line };
+        return { file: match[1], line: Number(match[2]), content: match[3] };
+      });
+      return { matches, total: matches.length };
     } catch (err: any) {
+      if (err.code === 'ENOENT') return { error: 'ripgrep (rg) not found. Install: https://github.com/BurntSushi/ripgrep' };
+      if (err.status === 1) return { matches: [], total: 0 };
       return { error: err.message };
     }
   },

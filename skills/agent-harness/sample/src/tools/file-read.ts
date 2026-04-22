@@ -1,6 +1,6 @@
 import { tool } from '@openrouter/agent/tool';
 import { z } from 'zod';
-import { readFile, stat } from 'fs/promises';
+import { readFile } from 'fs/promises';
 
 export const fileReadTool = tool({
   name: 'file_read',

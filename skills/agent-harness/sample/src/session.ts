@@ -27,9 +27,14 @@ export function loadSession(sessionPath: string): Message[] {
     .split('\n')
     .filter(Boolean)
     .map((line) => {
-      const entry: SessionEntry = JSON.parse(line);
-      return entry.message;
-    });
+      try {
+        const entry: SessionEntry = JSON.parse(line);
+        return entry.message;
+      } catch {
+        return null;
+      }
+    })
+    .filter((m): m is Message => m !== null);
 }
 
 export function listSessions(dir: string): string[] {

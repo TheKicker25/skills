@@ -21,27 +21,20 @@ export const shellTool = tool({
         timeout: timeoutMs,
         maxBuffer: 256 * 1024,
       });
-
       const output = (stdout + stderr).trim();
       const lines = output.split('\n');
       const truncated = lines.length > 2000;
-      const finalOutput = truncated ? lines.slice(-2000).join('\n') : output;
-
       return {
-        output: finalOutput,
+        output: truncated ? lines.slice(-2000).join('\n') : output,
         exitCode: 0,
         ...(truncated && { truncated: true }),
       };
     } catch (err: any) {
       if (err.killed) {
-        return {
-          output: (err.stdout ?? '') + (err.stderr ?? ''),
-          exitCode: null,
-          timedOut: true,
-        };
+        return { output: err.stdout?.trim() ?? '', exitCode: null, timedOut: true };
       }
       return {
-        output: (err.stdout ?? '') + (err.stderr ?? ''),
+        output: ((err.stdout ?? '') + (err.stderr ?? '')).trim(),
         exitCode: err.code ?? 1,
       };
     }

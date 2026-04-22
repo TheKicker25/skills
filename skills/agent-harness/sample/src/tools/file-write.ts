@@ -16,7 +16,6 @@ export const fileWriteTool = tool({
       await writeFile(path, content, 'utf-8');
       return { written: true, path };
     } catch (err: any) {
-      if (err.code === 'EACCES') return { error: `Permission denied: ${path}` };
       return { error: err.message };
     }
   },
