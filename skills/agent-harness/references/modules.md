@@ -354,3 +354,120 @@ import { AgentLogger, consoleLogHandler } from './logger.js';
 const logger = new AgentLogger();
 logger.on(consoleLogHandler); // or a custom handler
 ```
+
+---
+
+## `@`-file References
+
+Let users type `@filename` to attach file content to their message. Before sending to the agent, scan the input for `@path` tokens, read each file, and prepend the content.
+
+### Integration
+
+In `cli.ts`, before pushing the user message:
+
+```typescript
+import { readFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
+
+function expandFileRefs(input: string): string {
+  const parts: string[] = [];
+  const pattern = /@([\w.\/\-]+)/g;
+  let match;
+  while ((match = pattern.exec(input)) !== null) {
+    const filePath = resolve(match[1]);
+    if (existsSync(filePath)) {
+      try {
+        const content = readFileSync(filePath, 'utf-8');
+        parts.push(`<file path="${match[1]}">\n${content}\n</file>`);
+      } catch { /* skip unreadable */ }
+    }
+  }
+  if (!parts.length) return input;
+  return parts.join('\n') + '\n\n' + input;
+}
+
+// Before messages.push:
+const expanded = expandFileRefs(trimmed);
+messages.push({ role: 'user', content: expanded });
+```
+
+Optional: add tab completion for `@` using `rl.completer` to fuzzy-match files in the working directory.
+
+---
+
+## `!` Shell Shortcut
+
+`!command` runs a shell command and injects stdout into context as a user message, without going through a tool call. `!!command` runs silently (output not shown).
+
+### Integration
+
+In `cli.ts`, before command dispatch:
+
+```typescript
+import { execSync } from 'child_process';
+
+if (trimmed.startsWith('!')) {
+  const silent = trimmed.startsWith('!!');
+  const cmd = trimmed.slice(silent ? 2 : 1).trim();
+  if (!cmd) { rl.prompt(); return; }
+  try {
+    const output = execSync(cmd, { encoding: 'utf-8', timeout: 30000, maxBuffer: 256 * 1024 }).trim();
+    if (!silent) console.log(`${GRAY}${output}${RESET}`);
+    messages.push({ role: 'user', content: `Shell output of \`${cmd}\`:\n\`\`\`\n${output}\n\`\`\`` });
+  } catch (err: any) {
+    console.log(`${YELLOW}  ${err.message}${RESET}`);
+  }
+  rl.prompt();
+  return;
+}
+```
+
+---
+
+## Multi-line Input
+
+Replace readline with raw terminal mode to support Shift+Enter for newlines. Enter sends the message.
+
+### src/multi-line-input.ts
+
+```typescript
+import { emitKeypressEvents } from 'readline';
+
+export function readMultiLine(prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    process.stdout.write(prompt);
+    emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    let buffer = '';
+    const onKeypress = (_ch: string, key: { name: string; shift?: boolean; ctrl?: boolean }) => {
+      if (key.ctrl && key.name === 'c') { process.exit(0); }
+      if (key.name === 'return' && !key.shift) {
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+        process.stdin.removeListener('keypress', onKeypress);
+        process.stdout.write('\n');
+        resolve(buffer);
+        return;
+      }
+      if (key.name === 'return' && key.shift) {
+        buffer += '\n';
+        process.stdout.write('\n');
+        return;
+      }
+      if (key.name === 'backspace') {
+        if (buffer.length) { buffer = buffer.slice(0, -1); process.stdout.write('\b \b'); }
+        return;
+      }
+      if (_ch) { buffer += _ch; process.stdout.write(_ch); }
+    };
+    process.stdin.on('keypress', onKeypress);
+  });
+}
+```
+
+### Integration
+
+Replace the `rl.on('line')` loop with calls to `readMultiLine(prompt)` in a `while` loop.
+

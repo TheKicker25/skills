@@ -1,9 +1,10 @@
-import { createInterface, type Interface } from 'readline';
-import { loadConfig, type AgentConfig } from './config.js';
+import { createInterface } from 'readline';
+import { loadConfig } from './config.js';
 import { runAgentWithRetry, type ChatMessage } from './agent.js';
 import { initSessionDir, saveMessage, newSessionPath } from './session.js';
 import { printBanner } from './banner.js';
 import { TuiRenderer } from './renderer.js';
+import { dispatch, type CommandContext } from './commands.js';
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
@@ -12,6 +13,8 @@ const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const GRAY = '\x1b[90m';
+const BG_INPUT = '\x1b[100m';
+const WHITE = '\x1b[97m';
 
 function textBanner(model: string) {
   const width = Math.min(process.stdout.columns || 60, 60);
@@ -29,34 +32,11 @@ function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
-function ask(rl: Interface, prompt: string): Promise<string> {
-  return new Promise((r) => rl.question(prompt, r));
-}
-
-async function selectModel(config: AgentConfig, rl: Interface): Promise<void> {
-  const query = await ask(rl, `  ${DIM}Search models:${RESET} `);
-  if (!query.trim()) return;
-  process.stdout.write(`  ${DIM}Fetching…${RESET}`);
-  const res = await fetch('https://openrouter.ai/api/v1/models');
-  const { data } = await res.json() as { data: { id: string; name: string }[] };
-  process.stdout.write('\r\x1b[K');
-  const q = query.toLowerCase();
-  const matches = data.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)).slice(0, 15);
-  if (!matches.length) { console.log(`  ${DIM}No models matching "${query}".${RESET}\n`); return; }
-  matches.forEach((m, i) => console.log(`  ${DIM}${String(i + 1).padStart(2)})${RESET} ${m.id}`));
-  const pick = await ask(rl, `\n  ${DIM}Select (1-${matches.length}):${RESET} `);
-  const idx = parseInt(pick) - 1;
-  if (idx >= 0 && idx < matches.length) {
-    config.model = matches[idx].id;
-    console.log(`  ${DIM}Model →${RESET} ${CYAN}${config.model}${RESET}\n`);
-  } else { console.log(`  ${DIM}Cancelled.${RESET}\n`); }
-}
-
 async function main() {
   const config = loadConfig();
 
   initSessionDir(config.sessionDir);
-  const sessionPath = newSessionPath(config.sessionDir);
+  let sessionPath = newSessionPath(config.sessionDir);
   const messages: ChatMessage[] = [];
 
   if (config.showBanner) {
@@ -64,29 +44,51 @@ async function main() {
   } else {
     textBanner(config.model);
   }
-  if (config.slashCommands) console.log(`  ${DIM}/model to change${RESET}\n`);
+  if (config.slashCommands) console.log(`  ${DIM}/help for commands${RESET}\n`);
 
   const renderer = new TuiRenderer({ display: config.display });
 
+  const styled = config.display.inputStyle === 'styled';
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: `${GREEN}>${RESET} `,
+    prompt: styled ? `${BG_INPUT}\x1b[K ${WHITE}›${RESET}${BG_INPUT}${WHITE} ` : `${GREEN}>${RESET} `,
   });
-  rl.prompt();
+  function showPrompt() {
+    if (styled) {
+      process.stdout.write('\n\n\n\x1b[3A\r');
+      process.stdout.write(`${BG_INPUT}\x1b[K${RESET}\n`);
+    }
+    rl.prompt();
+    if (styled) {
+      const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
+      process.stdout.write(`\x1b7\n${BG_INPUT}\x1b[K ${DIM}${cwd}${RESET}\x1b8`);
+    }
+  }
+  const cmdCtx: CommandContext = {
+    config,
+    rl,
+    messages,
+    sessionPath,
+    resetSession: () => { sessionPath = newSessionPath(config.sessionDir); return sessionPath; },
+    totalTokens: { input: 0, output: 0 },
+  };
+
+  showPrompt();
 
   rl.on('line', async (input) => {
+    if (styled) process.stdout.write(`\r${BG_INPUT}\x1b[K${RESET}\n`);
+    else process.stdout.write(RESET);
     const trimmed = input.trim();
-    if (!trimmed) { rl.prompt(); return; }
+    if (!trimmed) { showPrompt(); return; }
     if (trimmed.toLowerCase() === 'exit') {
       console.log(`\n${DIM}Goodbye.${RESET}\n`);
       rl.close();
       process.exit(0);
     }
-    if (trimmed === '/model' && config.slashCommands) {
-      console.log(`  ${DIM}Current:${RESET} ${CYAN}${config.model}${RESET}`);
-      await selectModel(config, rl);
-      rl.prompt(); return;
+    if (trimmed.startsWith('/') && config.slashCommands) {
+      await dispatch(trimmed, cmdCtx);
+      showPrompt(); return;
     }
 
     messages.push({ role: 'user', content: trimmed });
@@ -117,13 +119,15 @@ async function main() {
 
       const inT = result.usage?.inputTokens ?? 0;
       const outT = result.usage?.outputTokens ?? 0;
+      cmdCtx.totalTokens.input += inT;
+      cmdCtx.totalTokens.output += outT;
       console.log(`\n${GRAY}  ${formatTokens(inT)} in · ${formatTokens(outT)} out${RESET}\n`);
     } catch (err: any) {
       clearInterval(spin);
       renderer.endStreaming();
       console.log(`\n${YELLOW}  Error: ${err.message}${RESET}\n`);
     }
-    rl.prompt();
+    showPrompt();
   });
 
   rl.on('close', () => process.exit(0));

@@ -5,6 +5,7 @@ export interface DisplayConfig {
   toolCalls: 'compact' | 'verbose' | 'hidden';
   toolResults: 'compact' | 'verbose' | 'hidden';
   reasoning: boolean;
+  inputStyle: 'styled' | 'plain';
 }
 
 export interface AgentConfig {
@@ -27,7 +28,7 @@ const DEFAULTS: AgentConfig = {
   maxCost: 1.0,
   sessionDir: '.sessions',
   showBanner: true,
-  display: { toolCalls: 'compact', toolResults: 'compact', reasoning: false },
+  display: { toolCalls: 'compact', toolResults: 'compact', reasoning: false, inputStyle: 'styled' },
   slashCommands: true,
 };
 

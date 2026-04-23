@@ -74,6 +74,22 @@ Server tools go in the `tools` array alongside user-defined tools. No client cod
 | System Prompt Composition | OFF | Assemble instructions from static + dynamic context |
 | Tool Permissions / Approval | OFF | Gate dangerous tools behind user confirmation |
 | Structured Event Logging | OFF | Emit events for tool calls, API requests, errors |
+| `@`-file References | OFF | `@filename` to attach file content to next message |
+| `!` Shell Shortcut | OFF | `!command` to run shell and inject output into context |
+| Multi-line Input | OFF | Shift+Enter for multi-line (requires raw terminal mode) |
+
+### Slash Commands (user-facing REPL commands)
+
+| Command | Default | Description |
+|---------|---------|-------------|
+| `/model` | ON | Switch model via OpenRouter API |
+| `/new` | ON | Start a fresh conversation |
+| `/help` | ON | List available commands |
+| `/compact` | OFF | Manually trigger context compaction |
+| `/session` | OFF | Show session metadata and token usage |
+| `/export` | OFF | Save conversation as Markdown |
+
+When slash commands are enabled, generate `src/commands.ts` with a command registry. See [references/slash-commands.md](references/slash-commands.md) for specs.
 
 ---
 
@@ -89,6 +105,7 @@ After getting checklist selections, follow this workflow:
 - [ ] Generate src/agent.ts (core runner)
 - [ ] Generate selected harness modules (specs in references/modules.md)
 - [ ] Generate src/renderer.ts (TUI display — see references/tui.md)
+- [ ] If slash commands selected: generate src/commands.ts (see references/slash-commands.md)
 - [ ] If ASCII Logo Banner is ON: generate src/banner.ts (see ASCII Logo Banner section below)
 - [ ] Generate src/cli.ts entry point (or src/server.ts — see references/server-entry-points.md)
 - [ ] Generate .env.example with OPENROUTER_API_KEY=
@@ -185,6 +202,7 @@ export interface DisplayConfig {
   toolCalls: 'compact' | 'verbose' | 'hidden';
   toolResults: 'compact' | 'verbose' | 'hidden';
   reasoning: boolean;
+  inputStyle: 'styled' | 'plain';
 }
 
 export interface AgentConfig {
@@ -207,7 +225,7 @@ const DEFAULTS: AgentConfig = {
   maxCost: 1.0,
   sessionDir: '.sessions',
   showBanner: false,
-  display: { toolCalls: 'compact', toolResults: 'compact', reasoning: false },
+  display: { toolCalls: 'compact', toolResults: 'compact', reasoning: false, inputStyle: 'styled' },
   slashCommands: true,
 };
 
@@ -361,6 +379,8 @@ const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const GRAY = '\x1b[90m';
+const BG_INPUT = '\x1b[100m';
+const WHITE = '\x1b[97m';
 
 function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
@@ -409,21 +429,35 @@ async function main() {
   if (config.slashCommands) console.log(`  ${DIM}/model to change${RESET}`);
   console.log(`${line}\n`);
 
+  const styled = config.display.inputStyle === 'styled';
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: `${GREEN}>${RESET} `,
+    prompt: styled ? `${BG_INPUT}\x1b[K ${WHITE}›${RESET}${BG_INPUT}${WHITE} ` : `${GREEN}>${RESET} `,
   });
-  rl.prompt();
+  function showPrompt() {
+    if (styled) {
+      process.stdout.write('\n\n\n\x1b[3A\r');
+      process.stdout.write(`${BG_INPUT}\x1b[K${RESET}\n`);
+    }
+    rl.prompt();
+    if (styled) {
+      const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
+      process.stdout.write(`\x1b7\n${BG_INPUT}\x1b[K ${DIM}${cwd}${RESET}\x1b8`);
+    }
+  }
+  showPrompt();
 
   rl.on('line', async (input) => {
+    if (styled) process.stdout.write(`\r${BG_INPUT}\x1b[K${RESET}\n`);
+    else process.stdout.write(RESET);
     const trimmed = input.trim();
-    if (!trimmed) { rl.prompt(); return; }
+    if (!trimmed) { showPrompt(); return; }
     if (trimmed.toLowerCase() === 'exit') { rl.close(); process.exit(0); }
     if (trimmed === '/model' && config.slashCommands) {
       console.log(`  ${DIM}Current:${RESET} ${CYAN}${config.model}${RESET}`);
       await selectModel(config, rl);
-      rl.prompt(); return;
+      showPrompt(); return;
     }
 
     console.log();
@@ -467,7 +501,7 @@ async function main() {
       if (streaming) process.stdout.write(RESET);
       console.log(`\n${YELLOW}  Error: ${err.message}${RESET}\n`);
     }
-    rl.prompt();
+    showPrompt();
   });
 
   rl.on('close', () => process.exit(0));
@@ -534,4 +568,5 @@ For content beyond the core files:
 - **[references/tools.md](references/tools.md)** — Specs for all user-defined tools: file-read, file-write, file-edit, glob, grep, list-dir, shell, js-repl, sub-agent, plan, request-input, web-fetch, view-image, custom template
 - **[references/modules.md](references/modules.md)** — Harness modules: session persistence, context compaction, system prompt composition, tool approval, structured logging
 - **[references/tui.md](references/tui.md)** — TUI renderer: tool call display, message coloring, per-tool formatters, display config
+- **[references/slash-commands.md](references/slash-commands.md)** — Slash command registry: /model, /new, /help, /compact, /session, /export
 - **[references/server-entry-points.md](references/server-entry-points.md)** — Express/Hono API server entry point with SSE streaming, plus extension points (MCP, WebSocket, dynamic models)
