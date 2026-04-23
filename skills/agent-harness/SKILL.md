@@ -104,6 +104,7 @@ After getting checklist selections, follow this workflow:
 - [ ] Generate selected tool files in src/tools/ (see Tool Pattern below, specs in references/tools.md)
 - [ ] Generate src/agent.ts (core runner)
 - [ ] Generate selected harness modules (specs in references/modules.md)
+- [ ] Generate src/terminal-bg.ts (adaptive input background — see references/tui.md)
 - [ ] Generate src/renderer.ts (TUI display — see references/tui.md)
 - [ ] If slash commands selected: generate src/commands.ts (see references/slash-commands.md)
 - [ ] If ASCII Logo Banner is ON: generate src/banner.ts (see ASCII Logo Banner section below)
@@ -380,10 +381,14 @@ export async function runAgentWithRetry(
 
 ### src/cli.ts
 
+When `inputStyle` is `'styled'`, use raw stdin to render a 3-line input box with top/bottom BG padding. See [references/tui.md](references/tui.md) for the full `styledReadLine()` implementation. For `'plain'` mode, use standard `readline`.
+
 ```typescript
-import { createInterface, type Interface } from 'readline';
-import { loadConfig, type AgentConfig } from './config.js';
+import { createInterface } from 'readline';
+import { loadConfig } from './config.js';
 import { runAgentWithRetry, type AgentEvent } from './agent.js';
+import { detectBg } from './terminal-bg.js';
+// import { styledReadLine } from ... — see references/tui.md for full implementation
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
@@ -392,8 +397,6 @@ const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const GRAY = '\x1b[90m';
-const BG_INPUT = '\x1b[100m';
-const WHITE = '\x1b[97m';
 
 function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
@@ -408,32 +411,12 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
   return `${key}=${val.length > 40 ? val.slice(0, 40) + '…' : val}`;
 }
 
-function ask(rl: Interface, prompt: string): Promise<string> {
-  return new Promise((r) => rl.question(prompt, r));
-}
-
-async function selectModel(config: AgentConfig, rl: Interface): Promise<void> {
-  const query = await ask(rl, `  ${DIM}Search models:${RESET} `);
-  if (!query.trim()) return;
-  process.stdout.write(`  ${DIM}Fetching…${RESET}`);
-  const res = await fetch('https://openrouter.ai/api/v1/models');
-  const { data } = await res.json() as { data: { id: string; name: string }[] };
-  process.stdout.write('\r\x1b[K');
-  const q = query.toLowerCase();
-  const matches = data.filter((m) => m.id.toLowerCase().includes(q) || m.name.toLowerCase().includes(q)).slice(0, 15);
-  if (!matches.length) { console.log(`  ${DIM}No models matching "${query}".${RESET}\n`); return; }
-  matches.forEach((m, i) => console.log(`  ${DIM}${String(i + 1).padStart(2)})${RESET} ${m.id}`));
-  const pick = await ask(rl, `\n  ${DIM}Select (1-${matches.length}):${RESET} `);
-  const idx = parseInt(pick) - 1;
-  if (idx >= 0 && idx < matches.length) {
-    config.model = matches[idx].id;
-    console.log(`  ${DIM}Model →${RESET} ${CYAN}${config.model}${RESET}\n`);
-  } else { console.log(`  ${DIM}Cancelled.${RESET}\n`); }
-}
-
 async function main() {
   const config = loadConfig();
+  const BG_INPUT = await detectBg();
+  const styled = config.display.inputStyle === 'styled';
 
+  // Banner
   const width = Math.min(process.stdout.columns || 60, 60);
   const line = GRAY + '─'.repeat(width) + RESET;
   console.log(`\n${line}`);
@@ -442,42 +425,28 @@ async function main() {
   if (config.slashCommands) console.log(`  ${DIM}/model to change${RESET}`);
   console.log(`${line}\n`);
 
-  const styled = config.display.inputStyle === 'styled';
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: styled ? `${BG_INPUT}\x1b[K ${WHITE}›${RESET}${BG_INPUT}${WHITE} ` : `${GREEN}>${RESET} `,
-  });
-  function showPrompt() {
-    if (styled) {
-      process.stdout.write('\n\n\n\x1b[3A\r');
-      process.stdout.write(`${BG_INPUT}\x1b[K${RESET}\n`);
-    }
-    rl.prompt();
+  const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: `${GREEN}>${RESET} ` });
+
+  async function getInput(): Promise<string> {
+    if (styled) return styledReadLine(BG_INPUT);
+    return new Promise((r) => { rl.prompt(); rl.once('line', r); });
+  }
+
+  while (true) {
+    const input = await getInput();
+    const trimmed = input.trim();
+    if (!trimmed) continue;
+
     if (styled) {
       const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
-      process.stdout.write(`\x1b7\n${BG_INPUT}\x1b[K ${DIM}${cwd}${RESET}\x1b8`);
+      process.stdout.write(`\x1b[K  ${DIM}${cwd}${RESET}\n`);
     }
-  }
-  showPrompt();
 
-  rl.on('line', async (input) => {
-    if (styled) process.stdout.write(`\r${BG_INPUT}\x1b[K${RESET}\n`);
-    else process.stdout.write(RESET);
-    const trimmed = input.trim();
-    if (!trimmed) { showPrompt(); return; }
-    if (trimmed.toLowerCase() === 'exit') { rl.close(); process.exit(0); }
-    if (trimmed === '/model' && config.slashCommands) {
-      console.log(`  ${DIM}Current:${RESET} ${CYAN}${config.model}${RESET}`);
-      await selectModel(config, rl);
-      showPrompt(); return;
-    }
+    if (trimmed.toLowerCase() === 'exit') { process.exit(0); }
 
     console.log();
-    let streaming = false;
-    let started = false;
+    let streaming = false, started = false;
     const toolStart = new Map<string, number>();
-
     const dots = ['·', '··', '···'];
     let di = 0;
     const spin = setInterval(() => {
@@ -486,11 +455,9 @@ async function main() {
 
     const handleEvent = (event: AgentEvent) => {
       if (!started) { started = true; process.stdout.write('\r\x1b[K'); }
-      if (event.type === 'text') {
-        if (!streaming) { streaming = true; process.stdout.write(CYAN); }
-        process.stdout.write(event.delta);
-      } else if (event.type === 'tool_call') {
-        if (streaming) { process.stdout.write(RESET + '\n'); streaming = false; }
+      if (event.type === 'text') { streaming = true; process.stdout.write(event.delta); }
+      else if (event.type === 'tool_call') {
+        if (streaming) { process.stdout.write('\n'); streaming = false; }
         toolStart.set(event.callId, Date.now());
         const args = summarizeArgs(event.name, event.args);
         console.log(`  ${YELLOW}⚡${RESET} ${DIM}${event.name}${args ? ' ' + args : ''}${RESET}`);
@@ -505,7 +472,6 @@ async function main() {
       const result = await runAgentWithRetry(config, trimmed, { onEvent: handleEvent });
       clearInterval(spin);
       if (streaming) process.stdout.write(RESET);
-
       const inT = result.usage?.inputTokens ?? 0;
       const outT = result.usage?.outputTokens ?? 0;
       console.log(`\n${GRAY}  ${formatTokens(inT)} in · ${formatTokens(outT)} out${RESET}\n`);
@@ -514,10 +480,7 @@ async function main() {
       if (streaming) process.stdout.write(RESET);
       console.log(`\n${YELLOW}  Error: ${err.message}${RESET}\n`);
     }
-    showPrompt();
-  });
-
-  rl.on('close', () => process.exit(0));
+  }
 }
 
 main();

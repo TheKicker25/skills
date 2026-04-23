@@ -61,10 +61,7 @@ export class TuiRenderer {
   }
 
   private renderText(delta: string): void {
-    if (!this.streaming) {
-      this.streaming = true;
-      process.stdout.write(CYAN);
-    }
+    this.streaming = true;
     process.stdout.write(delta);
   }
 

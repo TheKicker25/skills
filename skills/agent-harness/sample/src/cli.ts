@@ -5,6 +5,7 @@ import { initSessionDir, saveMessage, newSessionPath } from './session.js';
 import { printBanner } from './banner.js';
 import { TuiRenderer } from './renderer.js';
 import { dispatch, type CommandContext } from './commands.js';
+import { detectBg } from './terminal-bg.js';
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
@@ -13,7 +14,6 @@ const CYAN = '\x1b[36m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const GRAY = '\x1b[90m';
-const BG_INPUT = '\x1b[100m';
 const WHITE = '\x1b[97m';
 
 function textBanner(model: string) {
@@ -32,8 +32,60 @@ function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 
+function styledReadLine(bg: string): Promise<string> {
+  return new Promise((resolve) => {
+    let line = '';
+    let first = true;
+
+    function draw() {
+      if (first) {
+        process.stdout.write(`\n${bg}\x1b[K${RESET}\n`);
+        process.stdout.write(`${bg}\x1b[K ${WHITE}›${RESET}${bg}${WHITE} ${line}${RESET}\n`);
+        process.stdout.write(`${bg}\x1b[K${RESET}\x1b[1A\r\x1b[4G`);
+        first = false;
+      } else {
+        process.stdout.write(`\r\x1b[2K`);
+        process.stdout.write(`${bg}\x1b[K ${WHITE}›${RESET}${bg}${WHITE} ${line}${RESET}`);
+      }
+    }
+
+    draw();
+
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    const onData = (data: Buffer) => {
+      const str = data.toString('utf-8');
+      if (str.startsWith('\x1b')) return;
+      for (let i = 0; i < str.length; i++) {
+        const code = str.charCodeAt(i);
+        if (code === 13 || code === 10) {
+          process.stdin.off('data', onData);
+          process.stdin.setRawMode(false);
+          process.stdin.pause();
+          process.stdout.write(`${RESET}\n`);
+          resolve(line);
+          return;
+        } else if (code === 127 || code === 8) {
+          line = line.slice(0, -1);
+          draw();
+        } else if (code === 3) {
+          process.stdout.write(`${RESET}\n`);
+          process.exit(0);
+        } else if (code >= 32) {
+          line += str[i];
+          draw();
+        }
+      }
+    };
+
+    process.stdin.on('data', onData);
+  });
+}
+
 async function main() {
   const config = loadConfig();
+  const BG_INPUT = await detectBg();
 
   initSessionDir(config.sessionDir);
   let sessionPath = newSessionPath(config.sessionDir);
@@ -47,24 +99,14 @@ async function main() {
   if (config.slashCommands) console.log(`  ${DIM}/help for commands${RESET}\n`);
 
   const renderer = new TuiRenderer({ display: config.display });
-
   const styled = config.display.inputStyle === 'styled';
+
   const rl = createInterface({
     input: process.stdin,
     output: process.stdout,
-    prompt: styled ? `${BG_INPUT}\x1b[K ${WHITE}›${RESET}${BG_INPUT}${WHITE} ` : `${GREEN}>${RESET} `,
+    prompt: `${GREEN}>${RESET} `,
   });
-  function showPrompt() {
-    if (styled) {
-      process.stdout.write('\n\n\n\x1b[3A\r');
-      process.stdout.write(`${BG_INPUT}\x1b[K${RESET}\n`);
-    }
-    rl.prompt();
-    if (styled) {
-      const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
-      process.stdout.write(`\x1b7\n${BG_INPUT}\x1b[K ${DIM}${cwd}${RESET}\x1b8`);
-    }
-  }
+
   const cmdCtx: CommandContext = {
     config,
     rl,
@@ -74,63 +116,74 @@ async function main() {
     totalTokens: { input: 0, output: 0 },
   };
 
-  showPrompt();
+  async function getInput(): Promise<string> {
+    if (styled) return styledReadLine(BG_INPUT);
+    return new Promise((resolve) => {
+      rl.prompt();
+      rl.once('line', resolve);
+    });
+  }
 
-  rl.on('line', async (input) => {
-    if (styled) process.stdout.write(`\r${BG_INPUT}\x1b[K${RESET}\n`);
-    else process.stdout.write(RESET);
-    const trimmed = input.trim();
-    if (!trimmed) { showPrompt(); return; }
-    if (trimmed.toLowerCase() === 'exit') {
-      console.log(`\n${DIM}Goodbye.${RESET}\n`);
-      rl.close();
-      process.exit(0);
+  async function loop() {
+    while (true) {
+      const input = await getInput();
+      const trimmed = input.trim();
+      if (!trimmed) continue;
+
+      if (styled) {
+        const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
+        process.stdout.write(`\x1b[K  ${DIM}${cwd}${RESET}\n`);
+      }
+
+      if (trimmed.toLowerCase() === 'exit') {
+        console.log(`\n${DIM}Goodbye.${RESET}\n`);
+        process.exit(0);
+      }
+      if (trimmed.startsWith('/') && config.slashCommands) {
+        await dispatch(trimmed, cmdCtx);
+        continue;
+      }
+
+      messages.push({ role: 'user', content: trimmed });
+      saveMessage(sessionPath, { role: 'user', content: trimmed });
+
+      console.log();
+      let started = false;
+      const dots = ['·', '··', '···'];
+      let di = 0;
+      const spin = setInterval(() => {
+        if (!started) process.stdout.write(`\r${DIM}${dots[di++ % 3]}${RESET}`);
+      }, 300);
+
+      try {
+        const agentInput = messages.length > 1 ? messages : trimmed;
+        const result = await runAgentWithRetry(config, agentInput, {
+          onEvent: (e) => {
+            if (!started) { started = true; process.stdout.write('\r\x1b[K'); }
+            renderer.handle(e);
+            if (e.type === 'tool_result') started = false;
+          },
+        });
+        clearInterval(spin);
+        renderer.endStreaming();
+
+        messages.push({ role: 'assistant', content: result.text });
+        saveMessage(sessionPath, { role: 'assistant', content: result.text });
+
+        const inT = result.usage?.inputTokens ?? 0;
+        const outT = result.usage?.outputTokens ?? 0;
+        cmdCtx.totalTokens.input += inT;
+        cmdCtx.totalTokens.output += outT;
+        console.log(`\n${GRAY}  ${formatTokens(inT)} in · ${formatTokens(outT)} out${RESET}\n`);
+      } catch (err: any) {
+        clearInterval(spin);
+        renderer.endStreaming();
+        console.log(`\n${YELLOW}  Error: ${err.message}${RESET}\n`);
+      }
     }
-    if (trimmed.startsWith('/') && config.slashCommands) {
-      await dispatch(trimmed, cmdCtx);
-      showPrompt(); return;
-    }
+  }
 
-    messages.push({ role: 'user', content: trimmed });
-    saveMessage(sessionPath, { role: 'user', content: trimmed });
-
-    console.log();
-    let started = false;
-    const dots = ['·', '··', '···'];
-    let di = 0;
-    const spin = setInterval(() => {
-      if (!started) process.stdout.write(`\r${DIM}${dots[di++ % 3]}${RESET}`);
-    }, 300);
-
-    try {
-      const agentInput = messages.length > 1 ? messages : trimmed;
-      const result = await runAgentWithRetry(config, agentInput, {
-        onEvent: (e) => {
-          if (!started) { started = true; process.stdout.write('\r\x1b[K'); }
-          renderer.handle(e);
-          if (e.type === 'tool_result') started = false;
-        },
-      });
-      clearInterval(spin);
-      renderer.endStreaming();
-
-      messages.push({ role: 'assistant', content: result.text });
-      saveMessage(sessionPath, { role: 'assistant', content: result.text });
-
-      const inT = result.usage?.inputTokens ?? 0;
-      const outT = result.usage?.outputTokens ?? 0;
-      cmdCtx.totalTokens.input += inT;
-      cmdCtx.totalTokens.output += outT;
-      console.log(`\n${GRAY}  ${formatTokens(inT)} in · ${formatTokens(outT)} out${RESET}\n`);
-    } catch (err: any) {
-      clearInterval(spin);
-      renderer.endStreaming();
-      console.log(`\n${YELLOW}  Error: ${err.message}${RESET}\n`);
-    }
-    showPrompt();
-  });
-
-  rl.on('close', () => process.exit(0));
+  loop();
 }
 
 main();

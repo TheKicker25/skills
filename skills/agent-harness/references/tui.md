@@ -70,10 +70,7 @@ export class TuiRenderer {
   }
 
   private renderText(delta: string): void {
-    if (!this.streaming) {
-      this.streaming = true;
-      process.stdout.write(CYAN);
-    }
+    this.streaming = true;
     process.stdout.write(delta);
   }
 
@@ -208,3 +205,204 @@ Set in `agent.config.json`:
 | `compact` | One line: `⚡ name arg=value` | One line: `✓ name (0.3s)` |
 | `verbose` | Name + all args on separate lines | Checkmark + first 10 lines of output |
 | `hidden` | No output | No output |
+
+---
+
+## Adaptive Terminal Background
+
+The input box background should adapt to any terminal color scheme. This module queries the terminal's actual background color and alpha-blends a subtle tint over it — the same technique Codex uses.
+
+### src/terminal-bg.ts
+
+```typescript
+const FALLBACK = '\x1b[100m';
+
+function blend(fg: [number, number, number], bg: [number, number, number], alpha: number): [number, number, number] {
+  return [
+    Math.round(fg[0] * alpha + bg[0] * (1 - alpha)),
+    Math.round(fg[1] * alpha + bg[1] * (1 - alpha)),
+    Math.round(fg[2] * alpha + bg[2] * (1 - alpha)),
+  ];
+}
+
+function isLight(r: number, g: number, b: number): boolean {
+  return 0.299 * r + 0.587 * g + 0.114 * b > 128;
+}
+
+function toAnsi(r: number, g: number, b: number): string {
+  const ct = process.env.COLORTERM ?? '';
+  if (ct.includes('truecolor') || ct.includes('24bit')) {
+    return `\x1b[48;2;${r};${g};${b}m`;
+  }
+  // Approximate to xterm-256: indices 232-255 are grays, 16-231 are 6x6x6 cube
+  const ri = Math.round(r / 255 * 5);
+  const gi = Math.round(g / 255 * 5);
+  const bi = Math.round(b / 255 * 5);
+  return `\x1b[48;5;${16 + 36 * ri + 6 * gi + bi}m`;
+}
+
+function queryTerminalBg(timeoutMs = 200): Promise<[number, number, number] | null> {
+  return new Promise((resolve) => {
+    if (!process.stdin.isTTY) { resolve(null); return; }
+
+    const timer = setTimeout(() => { cleanup(); resolve(null); }, timeoutMs);
+    const wasRaw = process.stdin.isRaw;
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    let buf = '';
+    const onData = (data: Buffer) => {
+      buf += data.toString();
+      // Response: \x1b]11;rgb:RRRR/GGGG/BBBB\x1b\\ or \x07
+      const match = buf.match(/\x1b\]11;rgb:([0-9a-fA-F]+)\/([0-9a-fA-F]+)\/([0-9a-fA-F]+)/);
+      if (match) {
+        cleanup();
+        resolve([
+          parseInt(match[1].slice(0, 2), 16),
+          parseInt(match[2].slice(0, 2), 16),
+          parseInt(match[3].slice(0, 2), 16),
+        ]);
+      }
+    };
+
+    function cleanup() {
+      clearTimeout(timer);
+      process.stdin.off('data', onData);
+      process.stdin.setRawMode(wasRaw);
+      process.stdin.pause();
+    }
+
+    process.stdin.on('data', onData);
+    process.stdout.write('\x1b]11;?\x07');
+  });
+}
+
+export async function detectBg(): Promise<string> {
+  const bg = await queryTerminalBg();
+  if (!bg) return FALLBACK;
+  const [r, g, b] = bg;
+  const [top, alpha]: [[number, number, number], number] = isLight(r, g, b)
+    ? [[0, 0, 0], 0.04]
+    : [[255, 255, 255], 0.12];
+  const [br, bg2, bb] = blend(top, [r, g, b], alpha);
+  return toAnsi(br, bg2, bb);
+}
+```
+
+### How it works
+
+1. **OSC 11 query**: Sends `\x1b]11;?\x07` to the terminal, which responds with its background RGB
+2. **Light/dark detection**: Uses perceived luminance (`Y = 0.299R + 0.587G + 0.114B > 128`)
+3. **Alpha blending**: Dark terminals get white at 12% opacity; light terminals get black at 4%
+4. **Color downgrade**: Uses truecolor (`\x1b[48;2;r;g;bm`) when `COLORTERM` supports it, otherwise approximates to xterm-256 color cube
+5. **Fallback**: If the terminal doesn't respond to OSC 11 within 200ms (piped stdin, tmux without passthrough, etc.), falls back to `\x1b[100m` (bright black — theme-defined)
+
+### Wire into cli.ts
+
+```typescript
+import { detectBg } from './terminal-bg.js';
+
+async function main() {
+  const config = loadConfig();
+  const BG_INPUT = await detectBg();
+  // Use BG_INPUT for prompt and padding lines...
+}
+```
+
+---
+
+## Styled Input (Raw Mode)
+
+Node's `readline` module cannot render content below the cursor reliably. For styled input mode, use raw stdin for full control.
+
+### styledReadLine()
+
+```typescript
+const WHITE = '\x1b[97m';
+const RESET = '\x1b[0m';
+
+function styledReadLine(bg: string): Promise<string> {
+  return new Promise((resolve) => {
+    let line = '';
+    let first = true;
+
+    function draw() {
+      if (first) {
+        process.stdout.write(`\n${bg}\x1b[K${RESET}\n`);
+        first = false;
+      } else {
+        process.stdout.write(`\r\x1b[2K`);
+      }
+      process.stdout.write(`${bg}\x1b[K ${WHITE}›${RESET}${bg}${WHITE} ${line}${RESET}`);
+    }
+
+    draw();
+
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    const onData = (data: Buffer) => {
+      const str = data.toString('utf-8');
+      if (str.startsWith('\x1b')) return;
+      for (let i = 0; i < str.length; i++) {
+        const code = str.charCodeAt(i);
+        if (code === 13 || code === 10) {
+          process.stdin.off('data', onData);
+          process.stdin.setRawMode(false);
+          process.stdin.pause();
+          process.stdout.write(`${RESET}\n`);
+          resolve(line);
+          return;
+        } else if (code === 127 || code === 8) {
+          line = line.slice(0, -1);
+          draw();
+        } else if (code === 3) {
+          process.stdout.write(`${RESET}\n`);
+          process.exit(0);
+        } else if (code >= 32) {
+          line += str[i];
+          draw();
+        }
+      }
+    };
+
+    process.stdin.on('data', onData);
+  });
+}
+```
+
+### How it works
+
+1. **First draw**: writes top BG pad (`\n${bg}\x1b[K\n`) then prompt line — cursor stays on prompt
+2. **Subsequent draws**: erases prompt line in-place (`\r\x1b[2K`), redraws with updated text. No cursor-up/down, no line creation — can't grow or shift
+3. **On Enter**: `${RESET}\n` moves to next line. Main loop writes bottom BG pad + status line
+4. **On Ctrl-C**: exits cleanly
+5. **On Backspace**: removes last character and redraws in-place
+
+### Wire into cli.ts
+
+Use a loop instead of readline's event-based `on('line')`:
+
+```typescript
+async function getInput(): Promise<string> {
+  if (styled) return styledReadLine(BG_INPUT);
+  return new Promise((resolve) => { rl.prompt(); rl.once('line', resolve); });
+}
+
+async function loop() {
+  while (true) {
+    const input = await getInput();
+    const trimmed = input.trim();
+    if (!trimmed) continue;
+
+    if (styled) {
+      const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
+      process.stdout.write(`${BG_INPUT}\x1b[K${RESET}\n\x1b[K  ${DIM}${cwd}${RESET}\n`);
+    }
+
+    // ... handle input, run agent, etc.
+  }
+}
+```
+
+On submit, the handler writes: bottom BG pad (fills bleed line) → status line on default BG → newline. This produces symmetric scrollback: top pad | `› text` | bottom pad | `~/path` status.
