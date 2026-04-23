@@ -3,4 +3,3 @@ dist/
 .sessions/
 .env
 pnpm-lock.yaml
-package-lock.json
