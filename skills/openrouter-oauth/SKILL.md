@@ -205,7 +205,7 @@ const response = await fetch("https://openrouter.ai/api/v1/responses", {
   },
   body: JSON.stringify({
     model: "openai/gpt-4o-mini",
-    input: [{ role: "user", content: "Hello!" }],
+    input: [{ type: "message", role: "user", content: "Hello!" }],
   }),
 });
 ```

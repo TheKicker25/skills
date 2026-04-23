@@ -220,7 +220,20 @@ export interface AgentConfig {
 const DEFAULTS: AgentConfig = {
   apiKey: '',
   model: 'anthropic/claude-opus-4.7',
-  systemPrompt: 'You are a helpful assistant with access to tools.',
+  systemPrompt: [
+    'You are a coding assistant with access to tools for reading, writing, editing, and searching files, and running shell commands.',
+    '',
+    'Current working directory: {cwd}',
+    '',
+    'Guidelines:',
+    '- Use your tools proactively. Explore the codebase to find answers instead of asking the user.',
+    '- Keep working until the task is fully resolved before responding.',
+    '- Do not guess or make up information — use your tools to verify.',
+    '- Be concise and direct.',
+    '- Show file paths clearly when working with files.',
+    '- Prefer grep and glob tools over shell commands for file search.',
+    '- When editing code, make minimal targeted changes consistent with the existing style.',
+  ].join('\n'),
   maxSteps: 20,
   maxCost: 1.0,
   sessionDir: '.sessions',
@@ -305,7 +318,7 @@ export async function runAgent(
 
   const result = client.callModel({
     model: config.model,
-    instructions: config.systemPrompt,
+    instructions: config.systemPrompt.replace('{cwd}', process.cwd()),
     input: input as string | Item[],
     tools,
     stopWhen: [stepCountIs(config.maxSteps), maxCost(config.maxCost)],
@@ -569,4 +582,5 @@ For content beyond the core files:
 - **[references/modules.md](references/modules.md)** — Harness modules: session persistence, context compaction, system prompt composition, tool approval, structured logging
 - **[references/tui.md](references/tui.md)** — TUI renderer: tool call display, message coloring, per-tool formatters, display config
 - **[references/slash-commands.md](references/slash-commands.md)** — Slash command registry: /model, /new, /help, /compact, /session, /export
+- **[references/system-prompt.md](references/system-prompt.md)** — Default system prompt, buildSystemPrompt(), customization guide
 - **[references/server-entry-points.md](references/server-entry-points.md)** — Express/Hono API server entry point with SSE streaming, plus extension points (MCP, WebSocket, dynamic models)
