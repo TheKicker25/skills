@@ -21,7 +21,7 @@ export async function runAgent(
 
   const result = client.callModel({
     model: config.model,
-    instructions: config.systemPrompt,
+    instructions: config.systemPrompt.replace('{cwd}', process.cwd()),
     input: input as string | Item[],
     tools,
     stopWhen: [stepCountIs(config.maxSteps), maxCost(config.maxCost)],
