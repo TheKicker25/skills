@@ -2,10 +2,9 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
 export interface DisplayConfig {
-  toolCalls: 'compact' | 'verbose' | 'hidden';
-  toolResults: 'compact' | 'verbose' | 'hidden';
+  toolDisplay: 'emoji' | 'grouped' | 'minimal' | 'hidden';
   reasoning: boolean;
-  inputStyle: 'styled' | 'plain';
+  inputStyle: 'block' | 'bordered' | 'plain';
 }
 
 export interface AgentConfig {
@@ -41,7 +40,7 @@ const DEFAULTS: AgentConfig = {
   maxCost: 1.0,
   sessionDir: '.sessions',
   showBanner: true,
-  display: { toolCalls: 'compact', toolResults: 'compact', reasoning: false, inputStyle: 'styled' },
+  display: { toolDisplay: 'emoji', reasoning: false, inputStyle: 'block' },
   slashCommands: true,
 };
 

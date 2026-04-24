@@ -83,9 +83,66 @@ function styledReadLine(bg: string): Promise<string> {
   });
 }
 
+function borderedReadLine(borderColor = GRAY): Promise<string> {
+  return new Promise((resolve) => {
+    let line = '';
+    let first = true;
+    const width = process.stdout.columns || 80;
+    const border = `${borderColor}${'─'.repeat(width)}${RESET}`;
+
+    function draw() {
+      if (first) {
+        process.stdout.write(`\n${border}\n`);
+        process.stdout.write(`› ${line}\n`);
+        process.stdout.write(`${border}\x1b[1A\r\x1b[${3 + line.length}G`);
+        first = false;
+      } else {
+        process.stdout.write(`\r\x1b[2K`);
+        process.stdout.write(`› ${line}`);
+      }
+    }
+
+    draw();
+
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    const onData = (data: Buffer) => {
+      const str = data.toString('utf-8');
+      if (str.startsWith('\x1b')) return;
+      for (let i = 0; i < str.length; i++) {
+        const code = str.charCodeAt(i);
+        if (code === 13 || code === 10) {
+          process.stdin.off('data', onData);
+          process.stdin.setRawMode(false);
+          process.stdin.pause();
+          if (!line) {
+            process.stdout.write(`\x1b[1A\x1b[2K\x1b[1A\x1b[2K\r`);
+          } else {
+            process.stdout.write(`\x1b[1B\x1b[2K\r`);
+          }
+          resolve(line);
+          return;
+        } else if (code === 127 || code === 8) {
+          line = line.slice(0, -1);
+          draw();
+        } else if (code === 3) {
+          process.stdout.write(`${RESET}\n`);
+          process.exit(0);
+        } else if (code >= 32) {
+          line += str[i];
+          draw();
+        }
+      }
+    };
+
+    process.stdin.on('data', onData);
+  });
+}
+
 async function main() {
   const config = loadConfig();
-  const BG_INPUT = await detectBg();
+  const BG_INPUT = config.display.inputStyle === 'block' ? await detectBg() : '';
 
   initSessionDir(config.sessionDir);
   let sessionPath = newSessionPath(config.sessionDir);
@@ -99,7 +156,6 @@ async function main() {
   if (config.slashCommands) console.log(`  ${DIM}/help for commands${RESET}\n`);
 
   const renderer = new TuiRenderer({ display: config.display });
-  const styled = config.display.inputStyle === 'styled';
 
   const rl = createInterface({
     input: process.stdin,
@@ -117,11 +173,16 @@ async function main() {
   };
 
   async function getInput(): Promise<string> {
-    if (styled) return styledReadLine(BG_INPUT);
-    return new Promise((resolve) => {
-      rl.prompt();
-      rl.once('line', resolve);
-    });
+    switch (config.display.inputStyle) {
+      case 'block': return styledReadLine(BG_INPUT);
+      case 'bordered': return borderedReadLine();
+      case 'plain':
+      default:
+        return new Promise((resolve) => {
+          rl.prompt();
+          rl.once('line', resolve);
+        });
+    }
   }
 
   async function loop() {
@@ -130,7 +191,7 @@ async function main() {
       const trimmed = input.trim();
       if (!trimmed) continue;
 
-      if (styled) {
+      if (config.display.inputStyle !== 'plain') {
         const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
         process.stdout.write(`\x1b[K  ${DIM}${cwd}${RESET}\n`);
       }
@@ -165,7 +226,7 @@ async function main() {
           },
         });
         clearInterval(spin);
-        renderer.endStreaming();
+        renderer.endTurn();
 
         messages.push({ role: 'assistant', content: result.text });
         saveMessage(sessionPath, { role: 'assistant', content: result.text });
@@ -177,7 +238,7 @@ async function main() {
         console.log(`\n${GRAY}  ${formatTokens(inT)} in · ${formatTokens(outT)} out${RESET}\n`);
       } catch (err: any) {
         clearInterval(spin);
-        renderer.endStreaming();
+        renderer.endTurn();
         console.log(`\n${YELLOW}  Error: ${err.message}${RESET}\n`);
       }
     }

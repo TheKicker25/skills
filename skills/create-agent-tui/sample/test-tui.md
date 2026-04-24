@@ -5,7 +5,7 @@ Run these tests via ttyd + Playwright to verify the styled input box renders cor
 ## Setup
 
 ```bash
-cd skills/agent-harness/sample
+cd skills/create-agent-tui/sample
 ttyd -p 7682 --writable npx tsx src/cli.ts &
 # Navigate Playwright to http://localhost:7682
 # Wait 5s for CLI to load

@@ -1,23 +1,55 @@
-# Agent Harness
+# Create Agent TUI
 
-A skill for AI coding agents (Claude Code, Cursor, etc.) that generates a working agent harness in TypeScript, targeting [OpenRouter](https://openrouter.ai). Give it to your coding agent, tell it what kind of agent you want to build, and it produces a runnable project with tools, configuration, and an entry point.
+A skill for AI coding agents (Claude Code, Cursor, etc.) that scaffolds a complete agent TUI in TypeScript — like `create-react-app` for terminal agents. Tell your coding agent what kind of agent you want, and it generates a runnable project targeting [OpenRouter](https://openrouter.ai) with a fully customizable terminal interface, tools, and configuration.
 
-The generated harness draws from three production agent systems:
+## What it looks like
 
-- [pi-mono/coding-agent](https://github.com/badlogic/pi-mono/tree/main/packages/coding-agent) — three-layer architecture, JSONL sessions, pluggable tool operations
-- Claude Code — tool metadata, permission model, system prompt composition
-- [Codex CLI](https://github.com/openai/codex) — layered config, approval flow, structured logging
+Every part of the terminal UI is customizable out of the box.
+
+### Tool display styles
+
+Choose how tool calls appear during agent execution. Set `display.toolDisplay` in your config:
+
+**Emoji** — per-call markers with tool name, arguments, and timing:
+
+![Emoji tool display](sample/screenshots/tool-display-emoji.png)
+
+**Grouped** — bold action labels with tree-branch output, consecutive same-type calls merged:
+
+![Grouped tool display](sample/screenshots/tool-display-grouped.png)
+
+**Minimal** — aggregated one-liner summaries, flushed when text resumes:
+
+![Minimal tool display](sample/screenshots/tool-display-minimal.png)
+
+There's also a **hidden** mode that suppresses tool output entirely.
+
+### Input styles
+
+Three input styles are available via `display.inputStyle`:
+
+| Style | Description |
+|-------|-------------|
+| **`block`** | Full-width background-colored input box with `›` prompt — adapts to your terminal's color scheme using OSC 11 background detection |
+| **`bordered`** | Horizontal `─` lines above and below the input — works on any terminal without background detection |
+| **`plain`** | Simple `> ` readline prompt — no raw mode, no escape sequences |
+
+The `block` style automatically detects your terminal's background color and alpha-blends a subtle tint over it, so it looks right on both dark and light themes.
+
+### ASCII banner
+
+Enable `showBanner` to display a custom ASCII art logo on startup. The skill generates block-letter art for your project name using the `█` character, colored and sized to fit a 60-column terminal. The text-only fallback banner shows your agent name and model in a bordered box.
 
 ## When to use this
 
-Building your own agent harness makes sense when:
+Building your own agent TUI makes sense when:
 
 - **You need custom tools** — your agent interacts with your own APIs, databases, or domain-specific systems that generic agents can't reach
 - **You want control over the loop** — you need custom stop conditions, approval flows, cost limits, or model selection logic that hosted agents don't expose
 - **You're shipping a product** — the agent is part of your application, not a developer tool, and you need to own the entry point (CLI, API server, embedded)
 - **You want to learn** — understanding how agents work at the tool-execution level makes you better at using and debugging them
 
-You probably *don't* need this if you're just using Claude Code or Cursor as-is — those are already production agent harnesses. This is for when you need to build your own.
+You probably *don't* need this if you're just using Claude Code or Cursor as-is — those already have production TUIs. This is for when you need to build your own.
 
 ## What you can customize
 
@@ -62,7 +94,7 @@ The skill presents an interactive checklist when invoked. You pick what you need
 
 ## What `@openrouter/agent` handles
 
-The generated harness doesn't reimplement the agent loop — [`@openrouter/agent`](https://www.npmjs.com/package/@openrouter/agent) handles all of that:
+The generated TUI doesn't reimplement the agent loop — [`@openrouter/agent`](https://www.npmjs.com/package/@openrouter/agent) handles all of that:
 
 | Concern | How `@openrouter/agent` handles it |
 |---------|-------------------------------------|
@@ -76,11 +108,11 @@ The generated harness doesn't reimplement the agent loop — [`@openrouter/agent
 | **Shared context** | Type-safe shared state across tools via `sharedContextSchema` |
 | **Turn lifecycle** | `onTurnStart` / `onTurnEnd` callbacks for logging, compaction triggers, etc. |
 
-The harness you build provides everything *around* that loop: configuration, tool definitions, session persistence, the entry point (CLI or API server), and any modules you select from the checklist.
+The TUI you build provides everything *around* that loop: configuration, tool definitions, session persistence, the entry point (CLI or API server), and any modules you select from the checklist.
 
 ## Generated project structure
 
-With all defaults selected, the harness produces:
+With all defaults selected, the TUI produces:
 
 ```
 my-agent/
@@ -92,6 +124,8 @@ my-agent/
     agent.ts                Core runner with retry
     cli.ts                  Interactive REPL
     session.ts              JSONL conversation persistence
+    terminal-bg.ts          Adaptive background detection
+    renderer.ts             Tool display renderer
     tools/
       index.ts              Tool registry + server tools
       file-read.ts          Read files
@@ -105,9 +139,7 @@ my-agent/
 
 ## Sample
 
-A complete working harness with all defaults is in [`sample/`](sample/). It includes a clean terminal UI with streaming output, token counts, and session persistence.
-
-![Agent Harness TUI](sample/screenshot.png)
+A complete working TUI with all defaults is in [`sample/`](sample/). It includes a clean terminal UI with streaming output, token counts, and session persistence.
 
 To try it:
 
@@ -126,4 +158,4 @@ This is a skill for the [OpenRouter skills plugin](https://github.com/OpenRouter
 /plugin install openrouter@openrouter
 ```
 
-Then ask your agent to build an agent harness and it will use this skill automatically.
+Then ask your agent to build an agent TUI and it will use this skill automatically.

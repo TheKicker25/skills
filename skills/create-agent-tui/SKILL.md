@@ -1,11 +1,11 @@
 ---
-name: agent-harness
-description: Generates a working agent harness in TypeScript using @openrouter/agent with configurable tools and production patterns. Presents an interactive checklist of server tools (web search, datetime, image gen), user-defined tools (file ops, shell, grep, glob), and harness modules (session persistence, compaction, approval flow). Use when building an agent, creating a harness, scaffolding an agent project, or building a coding assistant.
+name: create-agent-tui
+description: Scaffolds a complete agent TUI in TypeScript using @openrouter/agent — like create-react-app for terminal agents. Generates a customizable terminal interface with three input styles, four tool display modes, ASCII banners, streaming output, session persistence, and configurable tools. Use when building an agent, creating a TUI, scaffolding an agent project, or building a coding assistant.
 ---
 
-# Building an Agent Harness
+# Create Agent TUI
 
-Generates a working, minimal agent harness in TypeScript targeting OpenRouter. The harness uses `@openrouter/agent` for the inner loop (model calls, tool execution, stop conditions) and provides the outer shell: configuration, session management, tool definitions, and an entry point.
+Scaffolds a complete agent TUI in TypeScript targeting OpenRouter. The generated project uses `@openrouter/agent` for the inner loop (model calls, tool execution, stop conditions) and provides the outer shell: a customizable terminal interface, configuration, session management, tool definitions, and an entry point.
 
 Architecture draws from three production agent systems:
 - **pi-mono/coding-agent** — three-layer separation, JSONL sessions, pluggable tool operations
@@ -105,7 +105,8 @@ After getting checklist selections, follow this workflow:
 - [ ] Generate src/agent.ts (core runner)
 - [ ] Generate selected harness modules (specs in references/modules.md)
 - [ ] Generate src/terminal-bg.ts (adaptive input background — see references/tui.md)
-- [ ] Generate src/renderer.ts (TUI display — see references/tui.md)
+- [ ] Generate input style functions in src/cli.ts (block/bordered/plain — see references/input-styles.md)
+- [ ] Generate src/renderer.ts (tool display — see references/tool-display.md)
 - [ ] If slash commands selected: generate src/commands.ts (see references/slash-commands.md)
 - [ ] If ASCII Logo Banner is ON: generate src/banner.ts (see ASCII Logo Banner section below)
 - [ ] Generate src/cli.ts entry point (or src/server.ts — see references/server-entry-points.md)
@@ -200,10 +201,9 @@ import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
 export interface DisplayConfig {
-  toolCalls: 'compact' | 'verbose' | 'hidden';
-  toolResults: 'compact' | 'verbose' | 'hidden';
+  toolDisplay: 'emoji' | 'grouped' | 'minimal' | 'hidden';
   reasoning: boolean;
-  inputStyle: 'styled' | 'plain';
+  inputStyle: 'block' | 'bordered' | 'plain';
 }
 
 export interface AgentConfig {
@@ -239,7 +239,7 @@ const DEFAULTS: AgentConfig = {
   maxCost: 1.0,
   sessionDir: '.sessions',
   showBanner: false,
-  display: { toolCalls: 'compact', toolResults: 'compact', reasoning: false, inputStyle: 'styled' },
+  display: { toolDisplay: 'emoji', reasoning: false, inputStyle: 'block' },
   slashCommands: true,
 };
 
@@ -381,14 +381,14 @@ export async function runAgentWithRetry(
 
 ### src/cli.ts
 
-When `inputStyle` is `'styled'`, use raw stdin to render a 3-line input box with top/bottom BG padding. See [references/tui.md](references/tui.md) for the full `styledReadLine()` implementation. For `'plain'` mode, use standard `readline`.
+Three input styles are supported: `block` (background box), `bordered` (horizontal lines), and `plain` (simple caret). See [references/input-styles.md](references/input-styles.md) for full implementations of `styledReadLine()`, `borderedReadLine()`, and the `getInput()` dispatcher.
 
 ```typescript
 import { createInterface } from 'readline';
 import { loadConfig } from './config.js';
 import { runAgentWithRetry, type AgentEvent } from './agent.js';
 import { detectBg } from './terminal-bg.js';
-// import { styledReadLine } from ... — see references/tui.md for full implementation
+// import { styledReadLine, borderedReadLine } from ... — see references/input-styles.md
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
@@ -413,8 +413,7 @@ function summarizeArgs(name: string, args: Record<string, unknown>): string {
 
 async function main() {
   const config = loadConfig();
-  const BG_INPUT = await detectBg();
-  const styled = config.display.inputStyle === 'styled';
+  const BG_INPUT = config.display.inputStyle === 'block' ? await detectBg() : '';
 
   // Banner
   const width = Math.min(process.stdout.columns || 60, 60);
@@ -428,8 +427,13 @@ async function main() {
   const rl = createInterface({ input: process.stdin, output: process.stdout, prompt: `${GREEN}>${RESET} ` });
 
   async function getInput(): Promise<string> {
-    if (styled) return styledReadLine(BG_INPUT);
-    return new Promise((r) => { rl.prompt(); rl.once('line', r); });
+    switch (config.display.inputStyle) {
+      case 'block': return styledReadLine(BG_INPUT);
+      case 'bordered': return borderedReadLine();
+      case 'plain':
+      default:
+        return new Promise((r) => { rl.prompt(); rl.once('line', r); });
+    }
   }
 
   while (true) {
@@ -437,7 +441,7 @@ async function main() {
     const trimmed = input.trim();
     if (!trimmed) continue;
 
-    if (styled) {
+    if (config.display.inputStyle !== 'plain') {
       const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
       process.stdout.write(`\x1b[K  ${DIM}${cwd}${RESET}\n`);
     }
@@ -543,7 +547,9 @@ For content beyond the core files:
 
 - **[references/tools.md](references/tools.md)** — Specs for all user-defined tools: file-read, file-write, file-edit, glob, grep, list-dir, shell, js-repl, sub-agent, plan, request-input, web-fetch, view-image, custom template
 - **[references/modules.md](references/modules.md)** — Harness modules: session persistence, context compaction, system prompt composition, tool approval, structured logging
-- **[references/tui.md](references/tui.md)** — TUI renderer: tool call display, message coloring, per-tool formatters, display config
+- **[references/tui.md](references/tui.md)** — Terminal background detection, adaptive input background
+- **[references/tool-display.md](references/tool-display.md)** — Tool display styles: emoji, grouped, minimal; TuiRenderer class, per-tool colors, formatters
+- **[references/input-styles.md](references/input-styles.md)** — Input styles: block (background box), bordered (horizontal lines), plain (simple caret)
 - **[references/slash-commands.md](references/slash-commands.md)** — Slash command registry: /model, /new, /help, /compact, /session, /export
 - **[references/system-prompt.md](references/system-prompt.md)** — Default system prompt, buildSystemPrompt(), customization guide
 - **[references/server-entry-points.md](references/server-entry-points.md)** — Express/Hono API server entry point with SSE streaming, plus extension points (MCP, WebSocket, dynamic models)

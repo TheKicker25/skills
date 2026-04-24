@@ -2,7 +2,7 @@
   "version": "1.0.0",
   "organization": "OpenRouter Inc",
   "date": "April 2026",
-  "abstract": "Generates a working agent harness in TypeScript using @openrouter/agent, with configurable tools and production patterns drawn from pi-mono, Claude Code, and Codex architectures.",
+  "abstract": "Scaffolds a complete agent TUI in TypeScript using @openrouter/agent — customizable input styles, tool display modes, ASCII banners, streaming output, session persistence, and configurable tools.",
   "references": [
     "https://openrouter.ai/docs/guides/features/server-tools/overview",
     "https://openrouter.ai/docs/guides/features/tool-calling",
