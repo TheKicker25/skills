@@ -1,11 +1,12 @@
 import { createInterface } from 'readline';
-import { loadConfig } from './config.js';
+import { loadConfig, type DisplayConfig } from './config.js';
 import { runAgentWithRetry, type ChatMessage } from './agent.js';
 import { initSessionDir, saveMessage, newSessionPath } from './session.js';
 import { printBanner } from './banner.js';
 import { TuiRenderer } from './renderer.js';
 import { dispatch, type CommandContext } from './commands.js';
 import { detectBg } from './terminal-bg.js';
+import { Loader } from './loader.js';
 
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
@@ -16,12 +17,17 @@ const YELLOW = '\x1b[33m';
 const GRAY = '\x1b[90m';
 const WHITE = '\x1b[97m';
 
-function textBanner(model: string) {
+function parseArg(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  return i !== -1 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined;
+}
+
+function textBanner(name: string, model: string) {
   const width = Math.min(process.stdout.columns || 60, 60);
   const line = GRAY + '─'.repeat(width) + RESET;
   console.log();
   console.log(line);
-  console.log(`  ${BOLD}My Harness${RESET}  ${DIM}sample${RESET}`);
+  console.log(`  ${BOLD}${name}${RESET}`);
   console.log(`  ${DIM}model${RESET}  ${CYAN}${model}${RESET}`);
   console.log(line);
   console.log(`  ${DIM}Type a message to start. "exit" to quit.${RESET}`);
@@ -46,6 +52,7 @@ function styledReadLine(bg: string): Promise<string> {
       } else {
         process.stdout.write(`\r\x1b[2K`);
         process.stdout.write(`${bg}\x1b[K ${WHITE}›${RESET}${bg}${WHITE} ${line}${RESET}`);
+        process.stdout.write(`\n${bg}\x1b[K${RESET}\x1b[1A\r\x1b[${4 + line.length}G`);
       }
     }
 
@@ -119,7 +126,8 @@ function borderedReadLine(borderColor = GRAY): Promise<string> {
           if (!line) {
             process.stdout.write(`\x1b[1A\x1b[2K\x1b[1A\x1b[2K\r`);
           } else {
-            process.stdout.write(`\x1b[1B\x1b[2K\r`);
+            process.stdout.write(`\x1b[1B\r`);
+            process.stdout.write(`\n`);
           }
           resolve(line);
           return;
@@ -141,7 +149,22 @@ function borderedReadLine(borderColor = GRAY): Promise<string> {
 }
 
 async function main() {
-  const config = loadConfig();
+  const argBanner = parseArg('--banner');
+  const argModel = parseArg('--model');
+  const argInput = parseArg('--input') as DisplayConfig['inputStyle'] | undefined;
+  const argToolDisplay = parseArg('--tool-display') as DisplayConfig['toolDisplay'] | undefined;
+
+  const overrides: Record<string, any> = {};
+  if (argBanner) overrides.name = argBanner;
+  if (argModel) overrides.model = argModel;
+  if (argInput || argToolDisplay) {
+    overrides.display = {
+      ...(argInput && { inputStyle: argInput }),
+      ...(argToolDisplay && { toolDisplay: argToolDisplay }),
+    };
+  }
+
+  const config = loadConfig(overrides);
   const BG_INPUT = config.display.inputStyle === 'block' ? await detectBg() : '';
 
   initSessionDir(config.sessionDir);
@@ -151,7 +174,7 @@ async function main() {
   if (config.showBanner) {
     printBanner(config.model);
   } else {
-    textBanner(config.model);
+    textBanner(config.name, config.model);
   }
   if (config.slashCommands) console.log(`  ${DIM}/help for commands${RESET}\n`);
 
@@ -208,24 +231,21 @@ async function main() {
       messages.push({ role: 'user', content: trimmed });
       saveMessage(sessionPath, { role: 'user', content: trimmed });
 
-      console.log();
       let started = false;
-      const dots = ['·', '··', '···'];
-      let di = 0;
-      const spin = setInterval(() => {
-        if (!started) process.stdout.write(`\r${DIM}${dots[di++ % 3]}${RESET}`);
-      }, 300);
+      const loader = new Loader(config.display.loader);
+      process.stdout.write('\n');
+      loader.start();
 
       try {
         const agentInput = messages.length > 1 ? messages : trimmed;
         const result = await runAgentWithRetry(config, agentInput, {
           onEvent: (e) => {
-            if (!started) { started = true; process.stdout.write('\r\x1b[K'); }
+            if (!started) { started = true; loader.stop(); }
             renderer.handle(e);
-            if (e.type === 'tool_result') started = false;
+            if (e.type === 'tool_result') { started = false; process.stdout.write('\n'); loader.start(); }
           },
         });
-        clearInterval(spin);
+        loader.stop();
         renderer.endTurn();
 
         messages.push({ role: 'assistant', content: result.text });
@@ -237,7 +257,7 @@ async function main() {
         cmdCtx.totalTokens.output += outT;
         console.log(`\n${GRAY}  ${formatTokens(inT)} in · ${formatTokens(outT)} out${RESET}\n`);
       } catch (err: any) {
-        clearInterval(spin);
+        loader.stop();
         renderer.endTurn();
         console.log(`\n${YELLOW}  Error: ${err.message}${RESET}\n`);
       }

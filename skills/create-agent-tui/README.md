@@ -2,19 +2,36 @@
 
 A skill for AI coding agents (Claude Code, Cursor, etc.) that scaffolds a complete agent TUI in TypeScript — like `create-react-app` for terminal agents. Tell your coding agent what kind of agent you want, and it generates a runnable project targeting [OpenRouter](https://openrouter.ai) with a fully customizable terminal interface, tools, and configuration.
 
+## Quickstart
+
+Install the [OpenRouter skills plugin](https://github.com/OpenRouterTeam/skills) in Claude Code:
+
+```
+/plugin marketplace add OpenRouterTeam/skills
+/plugin install openrouter@openrouter
+```
+
+Or with the [Skills CLI](https://skills.sh/docs/cli) (works with any supported agent):
+
+```
+npx skills add OpenRouterTeam/skills
+```
+
+Then tell your agent to build an agent TUI — it will use this skill automatically.
+
 ## What it looks like
 
 Every part of the terminal UI is customizable out of the box.
 
 ### Tool display styles
 
-Choose how tool calls appear during agent execution. Set `display.toolDisplay` in your config:
+Choose how tool calls appear during agent execution. Set `display.toolDisplay` in your config or pass `--tool-display` at launch:
 
 **Emoji** — per-call markers with tool name, arguments, and timing:
 
 ![Emoji tool display](sample/screenshots/tool-display-emoji.png)
 
-**Grouped** — bold action labels with tree-branch output, consecutive same-type calls merged:
+**Grouped** (default) — bold action labels with tree-branch output, consecutive same-type calls merged:
 
 ![Grouped tool display](sample/screenshots/tool-display-grouped.png)
 
@@ -26,7 +43,7 @@ There's also a **hidden** mode that suppresses tool output entirely.
 
 ### Input styles
 
-Three input styles are available via `display.inputStyle`:
+Three input styles are available via `display.inputStyle` or `--input`:
 
 | Style | Description |
 |-------|-------------|
@@ -34,7 +51,35 @@ Three input styles are available via `display.inputStyle`:
 | **`bordered`** | Horizontal `─` lines above and below the input — works on any terminal without background detection |
 | **`plain`** | Simple `> ` readline prompt — no raw mode, no escape sequences |
 
+**Block** (default) — full-width background input box that adapts to your terminal theme:
+
+![Block input style](sample/screenshots/input-style-block.png)
+
+**Bordered** — horizontal line frame that works on any terminal:
+
+![Bordered input style](sample/screenshots/input-style-bordered.png)
+
+**Plain** — simple readline prompt, no escape sequences:
+
+![Plain input style](sample/screenshots/input-style-plain.png)
+
 The `block` style automatically detects your terminal's background color and alpha-blends a subtle tint over it, so it looks right on both dark and light themes.
+
+### Loader animations
+
+Three loader styles shown while waiting for the model. Set `display.loader.style` and `display.loader.text`:
+
+**Gradient** (default) — scrolling color shimmer over the text:
+
+![Gradient loader](sample/screenshots/loader-gradient.png)
+
+**Spinner** — braille dot animation to the left:
+
+![Spinner loader](sample/screenshots/loader-spinner.png)
+
+**Minimal** — trailing dots:
+
+![Minimal loader](sample/screenshots/loader-minimal.png)
 
 ### ASCII banner
 
@@ -141,21 +186,14 @@ my-agent/
 
 A complete working TUI with all defaults is in [`sample/`](sample/). It includes a clean terminal UI with streaming output, token counts, and session persistence.
 
-To try it:
-
 ```bash
 cd sample
 npm install
 OPENROUTER_API_KEY=your-key-here npm start
 ```
 
-## Installation
+Customize at launch:
 
-This is a skill for the [OpenRouter skills plugin](https://github.com/OpenRouterTeam/skills). Install the plugin in Claude Code:
-
+```bash
+npm start -- --banner "Acme Bot" --model anthropic/claude-sonnet-4.6 --input bordered --tool-display emoji
 ```
-/plugin marketplace add OpenRouterTeam/skills
-/plugin install openrouter@openrouter
-```
-
-Then ask your agent to build an agent TUI and it will use this skill automatically.

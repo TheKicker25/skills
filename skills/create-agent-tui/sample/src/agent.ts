@@ -15,7 +15,7 @@ export type AgentEvent =
 export async function runAgent(
   config: AgentConfig,
   input: string | ChatMessage[],
-  options?: { onEvent?: (event: AgentEvent) => void },
+  options?: { onEvent?: (event: AgentEvent) => void; signal?: AbortSignal },
 ) {
   const client = new OpenRouter({ apiKey: config.apiKey });
 
@@ -32,6 +32,7 @@ export async function runAgent(
     const callNames = new Map<string, string>();
 
     for await (const item of result.getItemsStream()) {
+      if (options?.signal?.aborted) break;
       if (item.type === 'message') {
         const text = item.content
           ?.filter((c): c is { type: 'output_text'; text: string } => 'text' in c)
@@ -41,10 +42,15 @@ export async function runAgent(
           options.onEvent({ type: 'text', delta: text.slice(lastTextLen) });
           lastTextLen = text.length;
         }
-      } else if (item.type === 'function_call' && item.status === 'completed') {
-        callNames.set(item.callId, item.name);
-        const args = item.arguments ? JSON.parse(item.arguments) : {};
-        options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
+      } else if (item.type === 'function_call') {
+        if (!callNames.has(item.callId)) {
+          callNames.set(item.callId, item.name);
+          const args = item.arguments ? JSON.parse(item.arguments) : {};
+          options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
+        } else if (item.status === 'completed' && item.arguments) {
+          const args = JSON.parse(item.arguments);
+          options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
+        }
       } else if (item.type === 'function_call_output') {
         const out = typeof item.output === 'string' ? item.output : JSON.stringify(item.output);
         options.onEvent({
@@ -67,7 +73,7 @@ export async function runAgent(
 export async function runAgentWithRetry(
   config: AgentConfig,
   input: string | ChatMessage[],
-  options?: { onEvent?: (event: AgentEvent) => void; maxRetries?: number },
+  options?: { onEvent?: (event: AgentEvent) => void; signal?: AbortSignal; maxRetries?: number },
 ) {
   for (let attempt = 0, max = options?.maxRetries ?? 3; attempt <= max; attempt++) {
     try { return await runAgent(config, input, options); }

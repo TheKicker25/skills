@@ -1,54 +1,108 @@
-# TUI Input Box Test Plan
+# Screenshot & TUI Test Guide
 
-Run these tests via ttyd + Playwright to verify the styled input box renders correctly.
+This guide documents how to regenerate screenshots and verify the TUI renders correctly. It's intended for both human developers and AI agents maintaining this project.
 
-## Setup
+## Prerequisites
 
 ```bash
 cd skills/create-agent-tui/sample
-ttyd -p 7682 --writable npx tsx src/cli.ts &
-# Navigate Playwright to http://localhost:7682
-# Wait 5s for CLI to load
+npm install
+npx playwright install chromium
+brew install ttyd  # macOS — required for screenshot pipeline
 ```
 
-## Test Cases
+## How screenshots work
 
-### T1: Initial render — 3-line box visible
-- **Action**: App starts, no typing yet
-- **Expect**: Top BG pad + `› ` prompt + bottom BG pad (3 gray lines visible)
-- **Screenshot**: initial state
+The pipeline uses **ttyd + Playwright**:
 
-### T2: Typing does not grow or shift the box
-- **Action**: Type "hello world" one character at a time
-- **Expect**: Box stays exactly 3 lines. Text appears after `›`. No upward shift, no extra lines.
-- **Screenshot**: after typing 5 chars, after typing 10 chars
+1. `ttyd` spawns a demo script in a real PTY and serves it over HTTP as a web-based xterm.js terminal
+2. Playwright (headless Chromium) navigates to the ttyd URL
+3. After the demo script renders, Playwright injects dark background styling and takes a screenshot
 
-### T3: Backspace works
-- **Action**: Press Backspace 3 times
-- **Expect**: Last 3 characters removed, box stays 3 lines, no visual artifacts
-- **Screenshot**: after backspace
+This produces pixel-perfect terminal screenshots because the ANSI output flows through a real PTY with correct Unicode character widths.
 
-### T4: Submit shows symmetric box + status line
-- **Action**: Press Enter
-- **Expect**: Submitted block in scrollback: top BG pad + `› hello wo` + bottom BG pad + status line (dim cwd, default BG). Response appears below.
-- **Screenshot**: after submit + response
+```
+screenshot-demos.ts
+  │
+  ├── for each tool display style (emoji, grouped, minimal):
+  │     ttyd → npx tsx demo-tools.ts <style>
+  │     Playwright → http://localhost:<port> → screenshot
+  │
+  └── for each input style (block, bordered, plain):
+        ttyd → npx tsx demo-input.ts <style>
+        Playwright → http://localhost:<port> → screenshot
+```
 
-### T5: Second prompt renders correctly
-- **Action**: After response, new prompt appears
-- **Expect**: New 3-line box (top pad + prompt + bottom pad). No artifacts from previous block.
-- **Screenshot**: second prompt
-
-### T6: Bottom-of-screen — no cutoff
-- **Action**: Resize to small terminal (300px height). Submit multiple messages.
-- **Expect**: Prompt box is fully visible at bottom. No lines cut off.
-- **Screenshot**: small terminal after 2 submits
-
-### T7: Ctrl+C exits cleanly
-- **Action**: Press Ctrl+C
-- **Expect**: Process exits, terminal restored to normal
-
-## Cleanup
+## Running screenshots
 
 ```bash
-pkill -f 'ttyd.*7682'
+npm run screenshots
 ```
+
+This generates 6 PNGs in `screenshots/`:
+- `tool-display-emoji.png`, `tool-display-grouped.png`, `tool-display-minimal.png`
+- `input-style-block.png`, `input-style-bordered.png`, `input-style-plain.png`
+
+## Demo scripts
+
+### demo-tools.ts
+
+Simulates a realistic agent conversation by emitting scripted `AgentEvent` objects through `TuiRenderer`. Accepts one argument: the tool display style (`emoji`, `grouped`, or `minimal`).
+
+The script does NOT call the real agent or make API calls — it's a deterministic playback of fake events. It stays alive for 10 seconds so ttyd/Playwright has time to capture the screenshot.
+
+### demo-input.ts
+
+Renders the idle input prompt for each input style (`block`, `bordered`, or `plain`). Uses a hardcoded dark background tint for the block style since `detectBg()` requires terminal interaction.
+
+## Adding new screenshots
+
+Follow this pattern:
+
+1. Create a new demo script in `src/` that writes ANSI output to stdout and holds for 10s
+2. Add a loop in `screenshot-demos.ts` that spawns ttyd with your script and captures the screenshot
+3. Run `npm run screenshots` to verify
+4. Add the screenshot to the README
+
+## TUI test cases
+
+### Tool display (T1-T3)
+
+After running `npm run screenshots`, verify each tool display PNG:
+
+| Test | Screenshot | What to check |
+|------|-----------|---------------|
+| T1 | `tool-display-emoji.png` | Each tool call shows `⚡` marker with name and args, followed by `✓` with timing |
+| T2 | `tool-display-grouped.png` | Bold action labels (`Ran`, `Listed`, `Read`, `Searched`) with `└` tree-branch output lines |
+| T3 | `tool-display-minimal.png` | Single aggregated summary line (`ran 1 shell command, listed 2 directories...`) |
+
+### Input styles (T4-T6)
+
+| Test | Screenshot | What to check |
+|------|-----------|---------------|
+| T4 | `input-style-block.png` | Three-line background box with `›` prompt, tinted background extends full width |
+| T5 | `input-style-bordered.png` | Horizontal `─` lines above and below the `›` prompt |
+| T6 | `input-style-plain.png` | Simple `>` prompt, no borders or background |
+
+### Interactive tests (manual)
+
+These require running the actual CLI:
+
+```bash
+OPENROUTER_API_KEY=your-key npm start
+```
+
+| Test | Action | Expected |
+|------|--------|----------|
+| T7 | Type text in block input | Characters appear after `›`, box stays 3 lines, no shifting |
+| T8 | Press Backspace | Characters removed, no visual artifacts |
+| T9 | Press Enter to submit | Box appears in scrollback with status line below, response streams |
+| T10 | Second prompt after response | New input box renders cleanly, no artifacts from prior block |
+| T11 | Ctrl+C | Process exits cleanly, terminal restored |
+
+## Troubleshooting
+
+- **ttyd not found**: Install with `brew install ttyd` (macOS) or your system package manager
+- **Playwright browser not installed**: Run `npx playwright install chromium`
+- **Screenshots blank or wrong size**: Check ttyd is not already running on the same ports (7690-7700)
+- **Unicode rendering issues**: ttyd uses a real PTY so character widths are handled natively — if something wraps unexpectedly, the demo content is too wide for the terminal

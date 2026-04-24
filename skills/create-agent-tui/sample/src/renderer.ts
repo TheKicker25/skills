@@ -7,6 +7,7 @@ const BOLD = '\x1b[1m';
 const GREEN = '\x1b[32m';
 const YELLOW = '\x1b[33m';
 const RED = '\x1b[31m';
+const CYAN = '\x1b[36m';
 const GRAY = '\x1b[90m';
 const MAGENTA = '\x1b[35m';
 
@@ -63,6 +64,8 @@ export class TuiRenderer {
   private toolColors: Record<string, string>;
   private toolStart = new Map<string, number>();
   private streaming = false;
+  private lineBuf = '';
+  private inCodeBlock = false;
 
   private groupedPending: PendingCall[] = [];
   private groupedCategory = '';
@@ -91,7 +94,34 @@ export class TuiRenderer {
   private renderText(delta: string): void {
     this.flushMinimal();
     this.streaming = true;
-    process.stdout.write(delta);
+    this.lineBuf += delta;
+    const lines = this.lineBuf.split('\n');
+    this.lineBuf = lines.pop()!;
+    for (const line of lines) {
+      process.stdout.write(this.formatMarkdownLine(line) + '\n');
+    }
+  }
+
+  private flushLineBuf(): void {
+    if (this.lineBuf) {
+      process.stdout.write(this.formatMarkdownLine(this.lineBuf));
+      this.lineBuf = '';
+    }
+  }
+
+  private formatMarkdownLine(line: string): string {
+    if (line.startsWith('```')) {
+      this.inCodeBlock = !this.inCodeBlock;
+      return this.inCodeBlock ? `${DIM}` : RESET;
+    }
+    if (this.inCodeBlock) return `${DIM}${line}${RESET}`;
+
+    if (/^#{1,3}\s/.test(line)) return `\n${BOLD}${line.replace(/^#+\s*/, '')}${RESET}`;
+
+    let out = line;
+    out = out.replace(/\*\*(.+?)\*\*/g, `${BOLD}$1${RESET}`);
+    out = out.replace(/`([^`]+)`/g, `${CYAN}$1${RESET}`);
+    return out;
   }
 
   private renderToolCall(name: string, callId: string, args: Record<string, unknown>): void {
@@ -138,6 +168,8 @@ export class TuiRenderer {
 
   endStreaming(): void {
     if (this.streaming) {
+      this.flushLineBuf();
+      this.inCodeBlock = false;
       process.stdout.write(RESET + '\n');
       this.streaming = false;
     }

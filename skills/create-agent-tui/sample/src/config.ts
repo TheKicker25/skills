@@ -1,15 +1,22 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
 
+export interface LoaderConfig {
+  text: string;
+  style: 'gradient' | 'spinner' | 'minimal';
+}
+
 export interface DisplayConfig {
   toolDisplay: 'emoji' | 'grouped' | 'minimal' | 'hidden';
   reasoning: boolean;
   inputStyle: 'block' | 'bordered' | 'plain';
+  loader: LoaderConfig;
 }
 
 export interface AgentConfig {
   apiKey: string;
   model: string;
+  name: string;
   systemPrompt: string;
   maxSteps: number;
   maxCost: number;
@@ -21,7 +28,8 @@ export interface AgentConfig {
 
 const DEFAULTS: AgentConfig = {
   apiKey: '',
-  model: 'anthropic/claude-opus-4.7',
+  model: 'anthropic/claude-haiku-4.5',
+  name: 'My Agent',
   systemPrompt: [
     'You are a coding assistant with access to tools for reading, writing, editing, and searching files, and running shell commands.',
     '',
@@ -40,7 +48,12 @@ const DEFAULTS: AgentConfig = {
   maxCost: 1.0,
   sessionDir: '.sessions',
   showBanner: true,
-  display: { toolDisplay: 'emoji', reasoning: false, inputStyle: 'block' },
+  display: {
+    toolDisplay: 'grouped',
+    reasoning: false,
+    inputStyle: 'block',
+    loader: { text: 'Working', style: 'gradient' },
+  },
   slashCommands: true,
 };
 
@@ -50,7 +63,10 @@ export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   const configPath = resolve('agent.config.json');
   if (existsSync(configPath)) {
     const file = JSON.parse(readFileSync(configPath, 'utf-8'));
-    config = { ...config, ...file };
+    if (file.display) {
+      config.display = { ...config.display, ...file.display };
+    }
+    config = { ...config, ...file, display: config.display };
   }
 
   if (process.env.OPENROUTER_API_KEY) config.apiKey = process.env.OPENROUTER_API_KEY;
@@ -58,7 +74,10 @@ export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   if (process.env.AGENT_MAX_STEPS) config.maxSteps = Number(process.env.AGENT_MAX_STEPS);
   if (process.env.AGENT_MAX_COST) config.maxCost = Number(process.env.AGENT_MAX_COST);
 
-  config = { ...config, ...overrides };
+  if (overrides.display) {
+    config.display = { ...config.display, ...overrides.display };
+  }
+  config = { ...config, ...overrides, display: config.display };
   if (!config.apiKey) throw new Error('OPENROUTER_API_KEY is required.');
   return config;
 }

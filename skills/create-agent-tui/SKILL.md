@@ -91,6 +91,38 @@ Server tools go in the `tools` array alongside user-defined tools. No client cod
 
 When slash commands are enabled, generate `src/commands.ts` with a command registry. See [references/slash-commands.md](references/slash-commands.md) for specs.
 
+### Visual Customization (present as single-select for each)
+
+**Input style** — how the prompt looks. See [references/input-styles.md](references/input-styles.md):
+
+| Style | Default | Description |
+|-------|---------|-------------|
+| `block` | ON | Full-width background box with `›` prompt, adapts to terminal theme |
+| `bordered` | | Horizontal `─` lines above and below input |
+| `plain` | | Simple `> ` readline prompt, no escape sequences |
+| Other | | User describes what they want — implement a custom input style |
+
+**Tool display** — how tool calls appear during execution. See [references/tool-display.md](references/tool-display.md):
+
+| Style | Default | Description |
+|-------|---------|-------------|
+| `grouped` | ON | Bold action labels with tree-branch output |
+| `emoji` | | Per-call `⚡`/`✓` markers with args and timing |
+| `minimal` | | Aggregated one-liner summaries |
+| `hidden` | | No tool output |
+| Other | | User describes what they want — implement a custom display |
+
+**Loader animation** — shown while waiting for model response. See [references/loader.md](references/loader.md):
+
+| Style | Default | Description |
+|-------|---------|-------------|
+| `gradient` | ON | Scrolling color shimmer over the loader text |
+| `spinner` | | Braille dot spinner (⠋⠙⠹…) to the left of the text |
+| `minimal` | | Trailing dots (`Working···`) |
+| Other | | User describes what they want — implement a custom animation |
+
+Also ask for the **loader text** (default: `"Working"`).
+
 ---
 
 ## Generation Workflow
@@ -107,6 +139,7 @@ After getting checklist selections, follow this workflow:
 - [ ] Generate src/terminal-bg.ts (adaptive input background — see references/tui.md)
 - [ ] Generate input style functions in src/cli.ts (block/bordered/plain — see references/input-styles.md)
 - [ ] Generate src/renderer.ts (tool display — see references/tool-display.md)
+- [ ] Generate src/loader.ts (loader animation — see references/loader.md)
 - [ ] If slash commands selected: generate src/commands.ts (see references/slash-commands.md)
 - [ ] If ASCII Logo Banner is ON: generate src/banner.ts (see ASCII Logo Banner section below)
 - [ ] Generate src/cli.ts entry point (or src/server.ts — see references/server-entry-points.md)
@@ -239,7 +272,7 @@ const DEFAULTS: AgentConfig = {
   maxCost: 1.0,
   sessionDir: '.sessions',
   showBanner: false,
-  display: { toolDisplay: 'emoji', reasoning: false, inputStyle: 'block' },
+  display: { toolDisplay: 'grouped', reasoning: false, inputStyle: 'block' },
   slashCommands: true,
 };
 
@@ -249,7 +282,10 @@ export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   const configPath = resolve('agent.config.json');
   if (existsSync(configPath)) {
     const file = JSON.parse(readFileSync(configPath, 'utf-8'));
-    config = { ...config, ...file };
+    if (file.display) {
+      config.display = { ...config.display, ...file.display };
+    }
+    config = { ...config, ...file, display: config.display };
   }
 
   if (process.env.OPENROUTER_API_KEY) config.apiKey = process.env.OPENROUTER_API_KEY;
@@ -257,7 +293,10 @@ export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   if (process.env.AGENT_MAX_STEPS) config.maxSteps = Number(process.env.AGENT_MAX_STEPS);
   if (process.env.AGENT_MAX_COST) config.maxCost = Number(process.env.AGENT_MAX_COST);
 
-  config = { ...config, ...overrides };
+  if (overrides.display) {
+    config.display = { ...config.display, ...overrides.display };
+  }
+  config = { ...config, ...overrides, display: config.display };
   if (!config.apiKey) throw new Error('OPENROUTER_API_KEY is required.');
   return config;
 }
@@ -313,7 +352,7 @@ export type AgentEvent =
 export async function runAgent(
   config: AgentConfig,
   input: string | ChatMessage[],
-  options?: { onEvent?: (event: AgentEvent) => void },
+  options?: { onEvent?: (event: AgentEvent) => void; signal?: AbortSignal },
 ) {
   const client = new OpenRouter({ apiKey: config.apiKey });
 
@@ -330,6 +369,7 @@ export async function runAgent(
     const callNames = new Map<string, string>();
 
     for await (const item of result.getItemsStream()) {
+      if (options?.signal?.aborted) break;
       if (item.type === 'message') {
         const text = item.content
           ?.filter((c): c is { type: 'output_text'; text: string } => 'text' in c)
@@ -339,10 +379,15 @@ export async function runAgent(
           options.onEvent({ type: 'text', delta: text.slice(lastTextLen) });
           lastTextLen = text.length;
         }
-      } else if (item.type === 'function_call' && item.status === 'completed') {
-        callNames.set(item.callId, item.name);
-        const args = item.arguments ? JSON.parse(item.arguments) : {};
-        options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
+      } else if (item.type === 'function_call') {
+        if (!callNames.has(item.callId)) {
+          callNames.set(item.callId, item.name);
+          const args = item.arguments ? JSON.parse(item.arguments) : {};
+          options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
+        } else if (item.status === 'completed' && item.arguments) {
+          const args = JSON.parse(item.arguments);
+          options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
+        }
       } else if (item.type === 'function_call_output') {
         const out = typeof item.output === 'string' ? item.output : JSON.stringify(item.output);
         options.onEvent({
@@ -365,7 +410,7 @@ export async function runAgent(
 export async function runAgentWithRetry(
   config: AgentConfig,
   input: string | ChatMessage[],
-  options?: { onEvent?: (event: AgentEvent) => void; maxRetries?: number },
+  options?: { onEvent?: (event: AgentEvent) => void; signal?: AbortSignal; maxRetries?: number },
 ) {
   for (let attempt = 0, max = options?.maxRetries ?? 3; attempt <= max; attempt++) {
     try { return await runAgent(config, input, options); }
@@ -550,6 +595,7 @@ For content beyond the core files:
 - **[references/tui.md](references/tui.md)** — Terminal background detection, adaptive input background
 - **[references/tool-display.md](references/tool-display.md)** — Tool display styles: emoji, grouped, minimal; TuiRenderer class, per-tool colors, formatters
 - **[references/input-styles.md](references/input-styles.md)** — Input styles: block (background box), bordered (horizontal lines), plain (simple caret)
+- **[references/loader.md](references/loader.md)** — Loader animations: gradient (scrolling shimmer), spinner (braille dots), minimal (trailing dots)
 - **[references/slash-commands.md](references/slash-commands.md)** — Slash command registry: /model, /new, /help, /compact, /session, /export
 - **[references/system-prompt.md](references/system-prompt.md)** — Default system prompt, buildSystemPrompt(), customization guide
 - **[references/server-entry-points.md](references/server-entry-points.md)** — Express/Hono API server entry point with SSE streaming, plus extension points (MCP, WebSocket, dynamic models)

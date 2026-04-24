@@ -1,6 +1,6 @@
 # Tool Display Styles
 
-Three tool display styles are available, configured via `config.display.toolDisplay`. The default is `emoji`.
+Three tool display styles are available, configured via `config.display.toolDisplay`. The default is `grouped`.
 
 | Style | Look | Description |
 |-------|------|-------------|

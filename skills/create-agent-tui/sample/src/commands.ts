@@ -25,7 +25,12 @@ export interface SlashCommand {
 const commands: SlashCommand[] = [];
 
 function ask(rl: Interface, prompt: string): Promise<string> {
-  return new Promise((r) => rl.question(prompt, r));
+  return new Promise((r) => {
+    process.stdin.resume();
+    rl.question(prompt, (answer) => {
+      r(answer);
+    });
+  });
 }
 
 commands.push({
