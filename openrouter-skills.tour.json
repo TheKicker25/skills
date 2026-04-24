@@ -1,0 +1,150 @@
+{
+  "id": "openrouter-skills-onboarding",
+  "title": "OpenRouter Skills Tour",
+  "description": "Explore the OpenRouter Agent Skills collection — a set of contextual skills for building with OpenRouter's unified API across 600+ AI models.",
+  "version": "1.0.0",
+  "audience": "New Contributors",
+  "prerequisites": [
+    "Familiarity with the Agent Skills standard",
+    "Basic knowledge of OpenRouter"
+  ],
+  "steps": [
+    {
+      "id": "step-1-overview",
+      "title": "Project Overview",
+      "description": "Welcome! This repository is a collection of Agent Skills for OpenRouter — a unified API for 600+ AI models. Skills are contextual and auto-loaded based on the conversation. The top-level readme walks through installation for Claude Code, Cursor, OpenCode, and the Skills CLI.",
+      "estimatedTime": 60,
+      "focusDirectory": "",
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "step-2-skills-directory",
+      "title": "The Skills Collection",
+      "description": "This folder holds six skills covering the core OpenRouter capabilities: the TypeScript SDK, model discovery, image generation, OAuth, TUI creation, and agent migration. Each one is self-contained.",
+      "estimatedTime": 90,
+      "focusDirectory": "skills",
+      "highlightLayers": [
+        {
+          "id": "skills-layer",
+          "name": "Skills",
+          "color": "#3b82f6",
+          "items": [
+            { "path": "skills/openrouter-typescript-sdk", "type": "directory" },
+            { "path": "skills/openrouter-models", "type": "directory" },
+            { "path": "skills/openrouter-images", "type": "directory" },
+            { "path": "skills/openrouter-oauth", "type": "directory" },
+            { "path": "skills/create-agent-tui", "type": "directory" },
+            { "path": "skills/openrouter-agent-migration", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "step-3-skill-anatomy",
+      "title": "Anatomy of a Skill",
+      "description": "Each skill follows a consistent layout: a main entry point with frontmatter describing when the skill fires, a machine-readable manifest, a references folder for deeper docs, and — for some — supporting directories with runnable code or sample projects. The skill shown here is a good example of the full structure.",
+      "estimatedTime": 120,
+      "focusDirectory": "skills/create-agent-tui",
+      "highlightLayers": [
+        {
+          "id": "skill-files",
+          "name": "Skill Components",
+          "color": "#10b981",
+          "items": [
+            { "path": "skills/create-agent-tui/SKILL.md", "type": "file" },
+            { "path": "skills/create-agent-tui/metadata.json", "type": "file" },
+            { "path": "skills/create-agent-tui/references", "type": "directory" },
+            { "path": "skills/create-agent-tui/sample", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "step-4-runnable-scripts",
+      "title": "Skills With Runnable Scripts",
+      "description": "A couple of skills ship with executable helpers the agent can invoke directly — one handles image generation, the other queries the model catalog. Both need an OpenRouter API key in the environment to run.",
+      "estimatedTime": 90,
+      "focusDirectory": "skills",
+      "highlightLayers": [
+        {
+          "id": "scripted-skills",
+          "name": "Skills with scripts",
+          "color": "#f59e0b",
+          "items": [
+            { "path": "skills/openrouter-images/scripts", "type": "directory" },
+            { "path": "skills/openrouter-models/scripts", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "step-5-open-responses",
+      "title": "The open-responses Skill",
+      "description": "This skill lives at the repo root rather than alongside the others, and documents the OpenRouter Responses API. It follows the same entry point, manifest, and references convention as everything else.",
+      "estimatedTime": 60,
+      "focusDirectory": "open-responses",
+      "highlightLayers": [
+        {
+          "id": "open-responses-files",
+          "name": "open-responses",
+          "color": "#8b5cf6",
+          "items": [
+            { "path": "open-responses/SKILL.md", "type": "file" },
+            { "path": "open-responses/metadata.json", "type": "file" },
+            { "path": "open-responses/references", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "step-6-plugin-configs",
+      "title": "Plugin Marketplaces",
+      "description": "These two directories package the repo as installable plugins — one for Claude Code, one for Cursor. Each carries its own plugin manifest and marketplace listing so users can install the whole skill collection in one step.",
+      "estimatedTime": 60,
+      "focusDirectory": "",
+      "highlightLayers": [
+        {
+          "id": "plugin-configs",
+          "name": "Plugin configs",
+          "color": "#ef4444",
+          "items": [
+            { "path": ".claude-plugin", "type": "directory" },
+            { "path": ".cursor-plugin", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "step-7-next-steps",
+      "title": "Next Steps",
+      "description": "Now you know the layout. Start with the readme for installation, then open any skill's entry point to see how triggers and guidance are structured. To add a new skill, mirror an existing one and update both plugin marketplaces so it surfaces in Claude Code and Cursor.",
+      "estimatedTime": 60,
+      "focusDirectory": "",
+      "colorMode": "fileTypes"
+    }
+  ],
+  "metadata": {
+    "author": "Claude",
+    "createdAt": "2026-04-24T00:00:00.000Z",
+    "tags": [
+      "onboarding",
+      "openrouter",
+      "skills"
+    ]
+  }
+}
