@@ -53,7 +53,7 @@ async function main() {
   console.log('\nLoader styles:');
   for (const style of ['gradient', 'spinner', 'minimal'] as const) {
     process.stdout.write(`  capturing ${style}...`);
-    await capture(`loader-${style}`, ['--demo', '--loader-style', style]);
+    await capture(`loader-${style}`, ['--demo-loader', '--loader-style', style]);
   }
 
   console.log('\nDone! 10 screenshots generated.');
