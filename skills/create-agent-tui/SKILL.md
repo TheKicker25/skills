@@ -380,12 +380,9 @@ export async function runAgent(
           lastTextLen = text.length;
         }
       } else if (item.type === 'function_call') {
-        if (!callNames.has(item.callId)) {
-          callNames.set(item.callId, item.name);
-          const args = item.arguments ? JSON.parse(item.arguments) : {};
-          options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
-        } else if (item.status === 'completed' && item.arguments) {
-          const args = JSON.parse(item.arguments);
+        callNames.set(item.callId, item.name);
+        if (item.status === 'completed') {
+          const args = (() => { try { return item.arguments ? JSON.parse(item.arguments) : {}; } catch { return {}; } })();
           options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
         }
       } else if (item.type === 'function_call_output') {
