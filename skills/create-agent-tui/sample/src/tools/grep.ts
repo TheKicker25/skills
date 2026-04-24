@@ -19,7 +19,7 @@ export const grepTool = tool({
     const args = ['--no-heading', '--line-number', '--color=never'];
     if (ignoreCase) args.push('-i');
     if (fileGlob) args.push('--glob', fileGlob);
-    args.push(pattern, searchPath);
+    args.push('--', pattern, searchPath);
 
     try {
       const { stdout } = await execFileAsync('rg', args, {
@@ -34,7 +34,7 @@ export const grepTool = tool({
       return { matches, total: matches.length };
     } catch (err: any) {
       if (err.code === 'ENOENT') return { error: 'ripgrep (rg) not found. Install: https://github.com/BurntSushi/ripgrep' };
-      if (err.status === 1) return { matches: [], total: 0 };
+      if (err.code === 1) return { matches: [], total: 0 };
       return { error: err.message };
     }
   },

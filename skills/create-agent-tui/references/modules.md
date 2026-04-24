@@ -88,7 +88,11 @@ messages.push({ role: 'user', content: input });
 saveMessage(sessionPath, { role: 'user', content: input });
 
 const agentInput = messages.length > 1 ? messages : input;
-const result = await runAgentWithRetry(config, agentInput, { onText });
+const result = await runAgentWithRetry(config, agentInput, {
+  onEvent: (e) => {
+    if (e.type === 'text') onText(e.delta);
+  },
+});
 
 messages.push({ role: 'assistant', content: result.text });
 saveMessage(sessionPath, { role: 'assistant', content: result.text });

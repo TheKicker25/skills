@@ -98,8 +98,10 @@ const server = createServer(async (req, res) => {
 
     try {
       const result = await runAgentWithRetry(config, input, {
-        onText: (delta) => {
-          res.write(`data: ${JSON.stringify({ type: 'text', content: delta })}\n\n`);
+        onEvent: (e) => {
+          if (e.type === 'text') {
+            res.write(`data: ${JSON.stringify({ type: 'text', content: e.delta })}\n\n`);
+          }
         },
       });
 

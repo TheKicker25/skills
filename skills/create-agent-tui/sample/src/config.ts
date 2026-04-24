@@ -57,7 +57,7 @@ const DEFAULTS: AgentConfig = {
   slashCommands: true,
 };
 
-export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
+export function loadConfig(overrides: Partial<AgentConfig> = {}, opts?: { skipApiKey?: boolean }): AgentConfig {
   let config = { ...DEFAULTS };
 
   const configPath = resolve('agent.config.json');
@@ -78,6 +78,6 @@ export function loadConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     config.display = { ...config.display, ...overrides.display };
   }
   config = { ...config, ...overrides, display: config.display };
-  if (!config.apiKey) throw new Error('OPENROUTER_API_KEY is required.');
+  if (!config.apiKey && !opts?.skipApiKey) throw new Error('OPENROUTER_API_KEY is required.');
   return config;
 }

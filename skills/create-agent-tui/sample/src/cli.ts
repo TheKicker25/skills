@@ -167,7 +167,7 @@ async function main() {
     };
   }
 
-  const config = loadConfig(overrides);
+  const config = loadConfig(overrides, { skipApiKey: demoMode });
   const BG_INPUT = config.display.inputStyle === 'block' ? await detectBg() : '';
 
   initSessionDir(config.sessionDir);
@@ -199,6 +199,9 @@ async function main() {
   };
 
   async function getInput(): Promise<string> {
+    if (!process.stdin.isTTY) {
+      return new Promise((resolve) => { rl.prompt(); rl.once('line', resolve); });
+    }
     switch (config.display.inputStyle) {
       case 'block': return styledReadLine(BG_INPUT);
       case 'bordered': return borderedReadLine();
