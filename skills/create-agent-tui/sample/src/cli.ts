@@ -155,6 +155,7 @@ async function main() {
   const argToolDisplay = parseArg('--tool-display') as DisplayConfig['toolDisplay'] | undefined;
   const argLoaderStyle = parseArg('--loader-style') as import('./config.js').LoaderConfig['style'] | undefined;
   const demoMode = process.argv.includes('--demo');
+  const demoLoaderMode = process.argv.includes('--demo-loader');
 
   const overrides: Record<string, any> = {};
   if (argBanner) overrides.name = argBanner;
@@ -167,7 +168,7 @@ async function main() {
     };
   }
 
-  const config = loadConfig(overrides, { skipApiKey: demoMode });
+  const config = loadConfig(overrides, { skipApiKey: demoMode || demoLoaderMode });
   const BG_INPUT = config.display.inputStyle === 'block' ? await detectBg() : '';
 
   initSessionDir(config.sessionDir);
@@ -212,6 +213,18 @@ async function main() {
           rl.once('line', resolve);
         });
     }
+  }
+
+  async function runDemoLoader() {
+    if (config.display.inputStyle === 'block') {
+      process.stdout.write(`${DIM}> what's in this repo${RESET}\n`);
+      const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
+      process.stdout.write(`\x1b[K  ${DIM}${cwd}${RESET}\n`);
+    }
+    process.stdout.write('\n');
+    const loader = new Loader(config.display.loader);
+    loader.start();
+    await new Promise(() => {});
   }
 
   async function runDemo() {
@@ -330,7 +343,9 @@ async function main() {
     }
   }
 
-  if (demoMode) {
+  if (demoLoaderMode) {
+    runDemoLoader();
+  } else if (demoMode) {
     runDemo();
   } else {
     loop();

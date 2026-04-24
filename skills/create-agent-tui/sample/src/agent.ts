@@ -43,12 +43,10 @@ export async function runAgent(
           lastTextLen = text.length;
         }
       } else if (item.type === 'function_call') {
-        const parseArgs = (s?: string) => { try { return s ? JSON.parse(s) : {}; } catch { return {}; } };
-        if (!callNames.has(item.callId)) {
-          callNames.set(item.callId, item.name);
-          options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args: parseArgs(item.arguments) });
-        } else if (item.status === 'completed' && item.arguments) {
-          options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args: parseArgs(item.arguments) });
+        callNames.set(item.callId, item.name);
+        if (item.status === 'completed') {
+          const args = (() => { try { return item.arguments ? JSON.parse(item.arguments) : {}; } catch { return {}; } })();
+          options.onEvent({ type: 'tool_call', name: item.name, callId: item.callId, args });
         }
       } else if (item.type === 'function_call_output') {
         const out = typeof item.output === 'string' ? item.output : JSON.stringify(item.output);
