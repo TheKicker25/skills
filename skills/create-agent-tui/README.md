@@ -1,6 +1,8 @@
 # Create Agent TUI
 
-A skill for AI coding agents (Claude Code, Cursor, etc.) that scaffolds a complete agent TUI in TypeScript — like `create-react-app` for terminal agents. Tell your coding agent what kind of agent you want, and it generates a runnable project targeting [OpenRouter](https://openrouter.ai) with a fully customizable terminal interface, tools, and configuration.
+A skill for AI coding agents (Claude Code, Cursor, etc.) that scaffolds a complete agent TUI in TypeScript — like `create-react-app` but for terminal agents. Tell your coding agent what kind of agent you want, and it generates a runnable project that works with any model and gives you a fully customizable terminal interface, tools, and configuration.
+
+![My Harness banner](sample/screenshots/banner.png)
 
 ## Quickstart
 
@@ -39,6 +41,8 @@ Choose how tool calls appear during agent execution. Set `display.toolDisplay` i
 
 ![Minimal tool display](sample/screenshots/tool-display-minimal.png)
 
+**Custom** — describe what you want directly!
+
 There's also a **hidden** mode that suppresses tool output entirely.
 
 ### Input styles
@@ -63,6 +67,8 @@ Three input styles are available via `display.inputStyle` or `--input`:
 
 ![Plain input style](sample/screenshots/input-style-plain.png)
 
+**Custom** — describe what you want directly!
+
 The `block` style automatically detects your terminal's background color and alpha-blends a subtle tint over it, so it looks right on both dark and light themes.
 
 ### Loader animations
@@ -81,6 +87,8 @@ Three loader styles shown while waiting for the model. Set `display.loader.style
 
 ![Minimal loader](sample/screenshots/loader-minimal.png)
 
+**Custom** — describe what you want directly!
+
 ### ASCII banner
 
 Enable `showBanner` to display a custom ASCII art logo on startup. The skill generates block-letter art for your project name using the `█` character, colored and sized to fit a 60-column terminal. The text-only fallback banner shows your agent name and model in a bordered box.
@@ -89,14 +97,13 @@ Enable `showBanner` to display a custom ASCII art logo on startup. The skill gen
 
 Building your own agent TUI makes sense when:
 
+- **You want to customize the look** — create a fun UI or a custom one for your project/team!
 - **You need custom tools** — your agent interacts with your own APIs, databases, or domain-specific systems that generic agents can't reach
 - **You want control over the loop** — you need custom stop conditions, approval flows, cost limits, or model selection logic that hosted agents don't expose
 - **You're shipping a product** — the agent is part of your application, not a developer tool, and you need to own the entry point (CLI, API server, embedded)
 - **You want to learn** — understanding how agents work at the tool-execution level makes you better at using and debugging them
 
-You probably *don't* need this if you're just using Claude Code or Cursor as-is — those already have production TUIs. This is for when you need to build your own.
-
-## What you can customize
+## Features you can customize
 
 The skill presents an interactive checklist when invoked. You pick what you need:
 

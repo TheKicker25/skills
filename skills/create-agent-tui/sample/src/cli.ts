@@ -153,14 +153,17 @@ async function main() {
   const argModel = parseArg('--model');
   const argInput = parseArg('--input') as DisplayConfig['inputStyle'] | undefined;
   const argToolDisplay = parseArg('--tool-display') as DisplayConfig['toolDisplay'] | undefined;
+  const argLoaderStyle = parseArg('--loader-style') as import('./config.js').LoaderConfig['style'] | undefined;
+  const demoMode = process.argv.includes('--demo');
 
   const overrides: Record<string, any> = {};
   if (argBanner) overrides.name = argBanner;
   if (argModel) overrides.model = argModel;
-  if (argInput || argToolDisplay) {
+  if (argInput || argToolDisplay || argLoaderStyle) {
     overrides.display = {
       ...(argInput && { inputStyle: argInput }),
       ...(argToolDisplay && { toolDisplay: argToolDisplay }),
+      ...(argLoaderStyle && { loader: { text: 'Working', style: argLoaderStyle } }),
     };
   }
 
@@ -206,6 +209,66 @@ async function main() {
           rl.once('line', resolve);
         });
     }
+  }
+
+  async function runDemo() {
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const emit = (e: import('./agent.js').AgentEvent) => renderer.handle(e);
+
+    if (config.display.inputStyle === 'block') {
+      process.stdout.write(`${DIM}> what's in this repo${RESET}\n`);
+      const cwd = process.cwd().replace(process.env.HOME ?? '', '~');
+      process.stdout.write(`\x1b[K  ${DIM}${cwd}${RESET}\n`);
+    }
+
+    const loader = new Loader(config.display.loader);
+    process.stdout.write('\n');
+    loader.start();
+    await sleep(200);
+    loader.stop();
+
+    emit({ type: 'text', delta: "I'll explore the repository structure.\n\n" });
+    renderer.endTurn();
+
+    await sleep(100);
+    emit({ type: 'tool_call', name: 'shell', callId: 'c1', args: { command: 'pwd' } });
+    await sleep(200);
+    emit({ type: 'tool_result', name: 'shell', callId: 'c1', output: '/home/user/my-agent' });
+
+    await sleep(100);
+    emit({ type: 'tool_call', name: 'list_dir', callId: 'c2', args: { path: '.' } });
+    await sleep(150);
+    emit({ type: 'tool_result', name: 'list_dir', callId: 'c2', output: 'src/ package.json tsconfig.json .env' });
+
+    await sleep(100);
+    emit({ type: 'tool_call', name: 'list_dir', callId: 'c2b', args: { path: 'src/' } });
+    await sleep(150);
+    emit({ type: 'tool_result', name: 'list_dir', callId: 'c2b', output: 'cli.ts agent.ts config.ts tools/' });
+
+    await sleep(100);
+    emit({ type: 'tool_call', name: 'file_read', callId: 'c4', args: { path: 'package.json' } });
+    await sleep(100);
+    emit({ type: 'tool_result', name: 'file_read', callId: 'c4', output: '{"name":"my-agent","dependencies":{"@openrouter/agent":"^0.4"}}' });
+
+    await sleep(100);
+    emit({ type: 'tool_call', name: 'grep', callId: 'c5', args: { pattern: 'export' } });
+    await sleep(200);
+    emit({ type: 'tool_result', name: 'grep', callId: 'c5', output: 'src/agent.ts:export async function runAgent' });
+
+    renderer.endTurn();
+
+    await sleep(100);
+    emit({ type: 'text', delta: '\nThis is a TypeScript agent using `@openrouter/agent`.\n\n' });
+    emit({ type: 'text', delta: '- `src/cli.ts` — interactive REPL with styled input\n' });
+    emit({ type: 'text', delta: '- `src/agent.ts` — model calls with retry logic\n' });
+    emit({ type: 'text', delta: '- `src/config.ts` — layered config (file + env)\n' });
+    emit({ type: 'text', delta: '- `src/tools/` — file, shell, and search tools\n' });
+    renderer.endTurn();
+
+    console.log();
+    console.log(`${GRAY}  1.2k in · 340 out${RESET}\n`);
+
+    await getInput();
   }
 
   async function loop() {
@@ -264,7 +327,11 @@ async function main() {
     }
   }
 
-  loop();
+  if (demoMode) {
+    runDemo();
+  } else {
+    loop();
+  }
 }
 
 main();
