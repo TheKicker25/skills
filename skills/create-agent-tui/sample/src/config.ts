@@ -52,7 +52,7 @@ const DEFAULTS: AgentConfig = {
     toolDisplay: 'grouped',
     reasoning: false,
     inputStyle: 'block',
-    loader: { text: 'Working', style: 'gradient' },
+    loader: { text: 'Working', style: 'spinner' },
   },
   slashCommands: true,
 };

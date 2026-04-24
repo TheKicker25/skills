@@ -116,8 +116,8 @@ When slash commands are enabled, generate `src/commands.ts` with a command regis
 
 | Style | Default | Description |
 |-------|---------|-------------|
-| `gradient` | ON | Scrolling color shimmer over the loader text |
-| `spinner` | | Braille dot spinner (⠋⠙⠹…) to the left of the text |
+| `spinner` | ON | Braille dot spinner (⠋⠙⠹…) to the left of the text |
+| `gradient` | | Scrolling color shimmer over the loader text |
 | `minimal` | | Trailing dots (`Working···`) |
 | Other | | User describes what they want — implement a custom animation |
 
